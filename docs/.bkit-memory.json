@@ -1,8 +1,31 @@
 {
-  "sessionCount": 1,
+  "sessionCount": 2,
   "lastSession": {
-    "startedAt": "2026-06-30T10:38:37.850Z",
+    "startedAt": "2026-06-30T12:29:26.974Z",
     "platform": "claude",
     "level": "Starter"
+  },
+  "features": {
+    "proctor-prediction": {
+      "phase": "check",
+      "matchRate": 93,
+      "lastUpdated": "2026-06-30",
+      "analysisPath": "docs/03-analysis/proctor-prediction.analysis.md",
+      "notebooks": {
+        "v1": "models/claudev1.ipynb",
+        "v2": "models/claudev2.ipynb"
+      },
+      "submissions": {
+        "v1": "submissions/submission_20260630_1254_v1.csv",
+        "v2": "submissions/submission_20260630_1449_v2.csv"
+      },
+      "cvNMAE": {
+        "xgb_baseline": 0.2612,
+        "xgb_shap_selected": 0.2585,
+        "xgb_interaction_features": 0.2548
+      },
+      "bestConfig": "inter_feats",
+      "notes": "v2 best config: XGBoost + SHAP-derived interaction product features (NMAE=0.2548). Top SHAP features for MDD: psd_size_at_d70_mm, feat_cu, feat_cc. Top for OWC: feat_sat_mdd_proxy, psd_size_at_d70_mm, psd_size_at_d50_mm."
+    }
   }
 }
