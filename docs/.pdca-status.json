@@ -1,0 +1,42 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-06-30T12:55:00.000Z",
+  "activeFeatures": ["proctor-prediction"],
+  "primaryFeature": "proctor-prediction",
+  "features": {
+    "proctor-prediction": {
+      "phase": "do",
+      "startedAt": "2026-06-30T10:40:00.000Z",
+      "matchRate": null,
+      "iterationCount": 0,
+      "planDoc": "docs/01-plan/features/proctor-prediction.plan.md",
+      "designDoc": "docs/02-design/features/proctor-prediction.design.md",
+      "implementation": "solution.ipynb",
+      "firstSubmission": "submissions/submission_20260630_1254_v1.csv",
+      "cvNMAE": {
+        "ridge_baseline": 0.3347,
+        "xgb_default": 0.2612,
+        "lgb_default": 0.2628,
+        "tuned_xgb": 0.2656,
+        "tuned_lgb": 0.2577,
+        "ensemble_tuned": 0.2510
+      }
+    }
+  },
+  "pipeline": {
+    "currentPhase": 3,
+    "level": "Dynamic",
+    "phaseHistory": ["plan", "design", "do"]
+  },
+  "session": {
+    "startedAt": "2026-06-30T10:38:37.845Z",
+    "onboardingCompleted": true,
+    "lastActivity": "2026-06-30T12:55:00.000Z"
+  },
+  "history": [
+    { "event": "plan_created",   "feature": "proctor-prediction", "timestamp": "2026-06-30T10:40:00.000Z" },
+    { "event": "design_created", "feature": "proctor-prediction", "timestamp": "2026-06-30T10:45:00.000Z" },
+    { "event": "do_completed",   "feature": "proctor-prediction", "timestamp": "2026-06-30T12:55:00.000Z",
+      "notes": "solution.ipynb built, first submission generated, CV NMAE 0.2510 (ensemble)" }
+  ]
+}
