@@ -10,3 +10,6 @@ xgboost
 optuna
 shap
 shapiq
+statsmodels
+
+
