@@ -38,13 +38,13 @@ Baseline Modeling: Follow the steps in the Python Getting Started Notebook. This
 Submission File Format
 Submissions must be made as a CSV file. It must have a header row, and the id column must exactly match the row IDs of the test.csv file. A template is available for download in the Data Explorer.
 
-'''
+```
 id,proctor_owc_pct,proctor_mdd_g_cm3
 201,10.09,1.972
 202,11.25,1.872
 ....
 287,13.54,1.842
-'''
+```
 
 ## Data Description
 The complete dataset comprises 288 observations (table rows), each characterized by 24 attributes (features – table columns). Each observation aggregates the derived parameters and test results of a specific soil sample, based on a series of geotechnical laboratory tests.
