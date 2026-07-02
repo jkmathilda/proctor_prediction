@@ -20,13 +20,14 @@ For this purpose, we are providing a dataset. This dataset should be used to dev
 Proctor density (maximum dry density): ρPr
 Optimum water content: wopt
 
-<img width="1035" height="1184" alt="Image" src="https://github.com/user-attachments/assets/158f0168-922e-4f70-8311-446b5d4d69d1" />
+<img width="150" height="150" alt="Image" src="https://github.com/user-attachments/assets/158f0168-922e-4f70-8311-446b5d4d69d1" />
 Figure 2: Proctor curve based on 5 individual tests under varying water content with constant compaction energy. A polynomial function is used as a fitting function to determine the maximum dry density ρPr and the associated optimum water content wopt.
 
-<img width="1288" height="826" alt="Image" src="https://github.com/user-attachments/assets/8b06e853-b620-4ce4-8b99-92afab2f0283" />
+<img width="120" height="80" alt="Image" src="https://github.com/user-attachments/assets/8b06e853-b620-4ce4-8b99-92afab2f0283" />
+<img width="120" height="80" alt="Image" src="https://github.com/user-attachments/assets/f838887a-22ff-4d3d-b171-35f83d594913" />
 Figure 3: The grain size distribution (left) describes the composition of soils according to the percentage mass fractions per grain size. Soils with predominantly fine-grained components can be described in terms of their plasticity using consistency limits (right). Both tests provide fundamental insights into compactability.
 
-<img width="1101" height="816" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" />
+<img width="110" height="80" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" />
 Figure 4: Influence of loss on ignition on the location of the Proctor optimum.
 
 ### Process Information
