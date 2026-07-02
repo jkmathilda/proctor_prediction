@@ -10,8 +10,6 @@ Follow the Live Leaderboard in real-time to see how accurate your predictions ar
 ## The Ultimate Test
 The true challenge comes at the end of the competition: The winning model will be evaluated on a separate, previously completely unknown test dataset. The winner is not the approach that best reproduces the known data (overfitting), but rather the model that demonstrates the highest generalization ability and precision on entirely new soil samples—just like in geotechnical engineering practice.
 
----
-
 ## Objective
 The goal of the Challenge is to predict the maximum dry density ρPr and the corresponding optimum water content wopt from classification properties of the same soil sample. It is known that there is a strong correlation between the compaction parameters (ρPr, wopt) and the classification properties of soils determined in the laboratory. Parameters derived from the grain size distribution and the consistency limits are particularly relevant predictors. In geotechnical literature, numerous empirical formulations exist, but these are based on very different soil groups and test boundary conditions.
 
