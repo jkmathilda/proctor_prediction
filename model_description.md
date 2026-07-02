@@ -12,6 +12,7 @@
 - [v2 — SHAP + SHAPIQ Interpretability & Feature Selection](#v2--shap--shapiq-interpretability--feature-selection)
 - [v3 — Physics-Informed Neural Network (Twin-Head PINN)](#v3--physics-informed-neural-network-twin-head-pinn)
 - [v4 — Standalone PINN Script](#v4--standalone-pinn-script)
+- [v5 — SINDy Feature Discovery + SHAP Refinement + GBM/PINN Blend](#v5--sindy-feature-discovery--shap-refinement--gbmpinn-blend)
 
 ---
 
@@ -19,7 +20,8 @@
 
 | Version | Approach | CV NMAE | Submission |
 |---------|----------|---------|------------|
-| [v1](#v1--gradient-boosting-ensemble-with-optuna-tuning) | Gradient boosting ensemble + Optuna | **0.2431 ± 0.0243** | submission_20260702_1004_v1.csv |
+| [v5](#v5--sindy-feature-discovery--shap-refinement--gbmpinn-blend) | SINDy features + SHAP refinement + GBM/PINN blend | **0.2410** | submission_20260702_1200_v5.csv |
+| [v1](#v1--gradient-boosting-ensemble-with-optuna-tuning) | Gradient boosting ensemble + Optuna | 0.2431 ± 0.0243 | submission_20260702_1004_v1.csv |
 | [v2](#v2--shap--shapiq-interpretability--feature-selection) | SHAP/SHAPIQ analysis + feature selection | 0.2548 | submission_20260630_1449_v2.csv |
 | [v3](#v3--physics-informed-neural-network-twin-head-pinn) | PINN (twin-head, physics loss in training) | 0.2726 ± 0.0257 | submission_20260630_1630_v3_pinn.csv |
 | [v4](#v4--standalone-pinn-script) | PINN (single-head script, hold-out only) | N/A (no full CV) | submission20250630_1544_v4.csv |
@@ -135,3 +137,34 @@
 - No cross-validation — hold-out NMAE is less reliable than 5-fold CV on a dataset of only 201 samples.
 - Cosine annealing provides implicit learning rate warmdown, useful when training for more epochs.
 - Best validation NMAE not recorded in this document (reported at runtime only).
+
+---
+
+## v5 — SINDy Feature Discovery + SHAP Refinement + GBM/PINN Blend
+**File**: `scripts/v5.ipynb` | **Saved models**: `models/v5_xgb_mdd.pt`, `models/v5_xgb_owc.pt`, `models/v5_pinn_model.pt`
+**Plan**: `docs/01-plan/features/proctor-prediction.plan.md` §11
+
+### Pipeline
+1. **Preprocessing / baseline features** — identical to v1 (49 features: PSD raw + log, Cu/Cc/PI, missingness flags, median imputation).
+2. **SINDy sparse symbolic feature discovery** — PySINDy's STLSQ (built for `dx/dt=f(x)`) repurposed as *static* sparse regression: a degree-2 polynomial library over 11 physically-grounded base variables (D10/D30/D60, fines%, clay%, grain density, LOI, PI, log(kf), Cu, Cc) is reduced from 77 candidate terms to a compact surviving set per target via a 2D grid search over STLSQ's `(alpha, threshold)`. Default `alpha=0.05` (tuned for dynamical systems) was far too weak here — it let a collinear 77-term library on ~160 rows/fold blow up to a non-generalizing dense solution (NMAE-equivalent ~8); grid search found `alpha∈{1,2}, threshold=0.15` gives a stable fit. Surviving terms: 19 for MDD, 6 for OWC (21 unique, union). Standalone SINDy-formula NMAE-equivalent: 0.276 (MDD), 0.355 (OWC) — comparable to v1's Ridge baseline (0.335) despite being a handful of interpretable terms.
+3. **SHAP-guided refinement** — acts on two v2 findings that were surfaced but never applied: (a) drops the weaker (lower mean|SHAP|) side of each raw/log PSD pair (11 dropped, all `log_psd_size_at_dXX_mm`), (b) materializes the top-5 SHAP interaction pairs per target (via exact `shap_interaction_values`, restricted to base features to avoid interaction-of-interaction bloat) as explicit product features (10 unique pairs, e.g. `feat_cc × psd_size_at_d70_mm`). Net v5 feature set: 69 (70 v5-raw − 11 redundant + 10 interaction). Re-validated with SHAP afterward: 9/31 new SINDy/interaction terms rank in the top 20 features by importance — the guardrail v2 skipped.
+4. **GBM (primary)** — Optuna (50 trials × 4 model×target combos) tuning XGBoost/LightGBM on the 69-feature v5 set; XGBoost selected as primary (0.2441 CV NMAE vs LightGBM's 0.2455).
+5. **PINN (diversity, not primary)** — v3's twin-head architecture and physics loss (ZAV bound + Sr constraint) retrained unchanged on the v5 feature set. Confirmed again that PINN underperforms GBM at n=201 (0.2776 vs GBM's 0.2441) — consistent with v3/v4.
+6. **Ensembling** — out-of-fold GBM and PINN predictions combined two ways: a Ridge meta-learner (0.2575, worse than GBM alone — too little data for a reliable 2-feature meta-fit at n=201) and a CV-grid-searched fixed blend weight (same pattern as v1's XGB+LGB blend), which won: `0.8·GBM + 0.2·PINN` → **0.2410**, beating both GBM alone and v1's previous best.
+7. **Physical constraint** — same zero-air-voids saturation clip as v1/v3 (0 predictions clipped on the final blended test predictions).
+
+### Key Points
+- SINDy's `dx/dt=f(x)` machinery is legitimately reusable as generic sparse symbolic regression by treating samples as if they were time steps — the STLSQ solver itself doesn't know the difference, but its default regularization strength assumes cleaner, lower-dimensional dynamical-systems libraries, so it needed retuning for this collinear polynomial library.
+- SHAP work is only valuable if acted on: v2 computed the same redundancy/interaction findings months earlier but never engineered them back into a model; doing so here moved default-XGBoost NMAE from 0.2612 (v1 feature set) to 0.2560 (v5-refined, pre-tuning) — a "free" ~0.005 improvement before any hyperparameter search.
+- PINN's role changed from "candidate primary model" (v3/v4) to "diversity source for ensembling" — it still underperforms solo, but a small (20%) blend weight extracts a genuine ~0.003 NMAE improvement over GBM alone, more than the Ridge meta-learner could recover from the same two prediction streams.
+- **Environment note**: mixing XGBoost/LightGBM/SHAP (OpenMP-threaded) with PyTorch in one process deadlocks on this machine the instant `DataLoader` starts iterating. Fixed by pinning `OMP_NUM_THREADS=1` (and `OPENBLAS_/MKL_/VECLIB_MAXIMUM_/NUMEXPR_NUM_THREADS`) plus `torch.set_num_threads(1)` before any of these libraries are imported — necessary because v5 is the first version to combine GBM and PINN in a single kernel.
+
+### Results (5-fold CV)
+| Model | CV NMAE |
+|-------|---------|
+| **v5 fixed blend (0.8·GBM + 0.2·PINN)** | **0.2410** |
+| v1 tuned LightGBM (paper baseline, 49 feats) | 0.2431 |
+| v5 tuned XGBoost (69 feats) | 0.2441 |
+| v5 tuned LightGBM (69 feats) | 0.2455 |
+| v5 Ridge stack (GBM+PINN meta-learner) | 0.2575 |
+| v5 PINN alone (69 feats) | 0.2776 |

@@ -158,3 +158,72 @@ NMAE = 0.5 × (MAE_mdd / IQR_mdd) + 0.5 × (MAE_owc / IQR_owc)
 - [ ] No data leakage between train/test during feature engineering
 - [ ] Predictions physically plausible (MDD < saturation line)
 - [ ] Submission CSV matches required format exactly
+
+---
+
+## 11. v5 Plan — SINDy Feature Discovery + SHAP Refinement + Stacked Ensemble
+
+**Added**: 2026-07-02
+**Baseline to beat**: v1 tuned LightGBM, CV NMAE **0.2431 ± 0.0243** (see `model_description.md`)
+
+### 11.1 Where v1–v4 left off
+
+| Version | Approach | CV NMAE | Verdict |
+|---|---|---|---|
+| v1 | XGBoost/LightGBM + Optuna | **0.2431** | Best so far — trees win on 201 rows |
+| v2 | SHAP/SHAPIQ analysis on v1 | 0.2548 (feature-pruned) | Pruning alone *hurt* — need better features, not fewer |
+| v3 | Twin-head PINN, physics loss | 0.2726 | NN underpowered on this dataset size; 0 ZAV violations |
+| v4 | Single-head PINN script | N/A (no CV) | Lighter features, hold-out only |
+
+**Reading**: gradient boosting is the stronger predictor at n=201; PINNs so far only pay off on physical-plausibility, not accuracy. v2's SHAP work already surfaced two concrete, unused leads: (a) raw-vs-log PSD columns are redundant (|r| > 0.87 in SHAP space), and (b) `feat_sat_mdd_proxy × psd_passing_at_0_063mm_pct` is the strongest SHAPIQ interaction for MDD but was never materialized as an explicit engineered feature. v5 acts on both, and adds SINDy as a new feature-discovery step rather than a standalone model.
+
+### 11.2 Method 1 — SINDy-style sparse symbolic feature discovery
+
+PySINDy is built for `dx/dt = f(x)`, but this dataset has no time axis. We use its underlying mechanism — a large candidate function **library** (polynomial, ratio, and interaction terms of the PSD/Atterberg/hydraulic variables) reduced by **STLSQ** (sequential thresholded least squares) — as **static sparse symbolic regression**: `target ≈ Ξ · Θ(features)`, keeping only the handful of terms with non-negligible coefficients. This mirrors what SINDy does for dynamical systems, just with samples in place of time steps.
+
+- **Library**: degree-2 polynomial terms over `{D10, D30, D60, D90, fines%, clay%, LL, PL, LOI, grain_density}` plus known geotechnical ratios (Cu, Cc, PI) as seed terms — keeps the library physically grounded instead of a blind degree-3 polynomial blow-up.
+- **Fit**: `pysindy.optimizers.STLSQ` (or plain scikit-learn `Lasso`/`SR3` if pysindy's API friction with static regression proves too high) per target, threshold swept via CV.
+- **Output**: a short symbolic formula per target (e.g., `MDD ≈ a·grain_density − b·(fines%·D10) + c`), reported alongside its own CV NMAE as a standalone interpretable baseline.
+- **Primary use**: the surviving nonzero terms become **new engineered features** fed into the v1 LightGBM/XGBoost pipeline (not a replacement for it) — a data-driven complement to the hand-picked `feat_cu`/`feat_cc`/`feat_sat_mdd_proxy` terms already in `design.md §4.1`.
+- **New dependency**: `pysindy` is not yet installed (`requirements.txt` doesn't list it) — add and pin a version before implementation.
+
+### 11.3 Method 2 — SHAP-guided refinement (acting on v2's findings)
+
+- Drop one side of each raw/log PSD pair per v2's redundancy finding (keep whichever has higher mean |SHAP|, not both).
+- Materialize the top 2–3 SHAPIQ pairwise interactions from v2 §9 (`feat_sat_mdd_proxy × fines%`, plus the top OWC pair) as explicit product features — v2 found them but never fed them back into a retrained model.
+- Re-run SHAP on the v5 feature set (SINDy terms + interaction products) to confirm the new features actually carry signal before locking the feature list — don't repeat v2's mistake of pruning without validating the replacement.
+
+### 11.4 Method 3 — Stacked ensemble (GBM + PINN as diversity, not primary)
+
+Given PINNs underperform individually, v5 does **not** try to make PINN win outright. Instead:
+
+- Retrain v1 LightGBM/XGBoost on the v5 feature set (SINDy + SHAP-refined) → primary predictor.
+- Retrain a v3-style PINN on the same v5 feature set, physics loss unchanged (ZAV bound + Sr constraint) → diversity predictor.
+- Out-of-fold predictions from both feed a simple Ridge meta-learner (or CV-optimized weighted blend, matching v1's existing blend-weight approach) — same pattern already used for the XGB+LGB blend in v1.
+- Ship the stack only if it beats plain tuned-LightGBM-on-v5-features; otherwise ship the tuned GBM alone. PINN's job here is error diversity, not a solo submission.
+
+### 11.5 Validation & Guardrails
+
+- Same 5-fold `KFold(shuffle=True, random_state=42)` and fixed-IQR NMAE as v1–v4 — results must stay comparable to `model_description.md`.
+- SINDy terms and imputers still fit on train folds only (no leakage), per existing plan §7 risk register.
+- Saturation-line clip (`design.md §5.5`) still applied post-hoc as a safety net regardless of which model wins.
+
+### 11.6 Deliverables
+
+| Deliverable | Description |
+|---|---|
+| `scripts/v5.ipynb` | SINDy feature discovery + SHAP refinement + GBM/PINN stacking |
+| `model_description.md` (v5 section) | Symbolic formulas discovered, CV NMAE table, comparison vs v1–v4 |
+| `submissions/submission_YYYYMMDD_v5.csv` | Final v5 prediction file |
+| `requirements.txt` | Add `pysindy` |
+
+### 11.7 Acceptance Criteria
+
+- [x] CV NMAE ≤ 0.2431 (beats v1, the current best) — achieved 0.2410 (fixed blend, 0.8 GBM + 0.2 PINN)
+- [x] At least one SINDy-discovered term shown (via re-run SHAP) to carry non-trivial importance in the GBM model — 9/31 new SINDy/interaction terms rank in the top 20 features
+- [x] No raw/log PSD duplicate pair both retained in final feature set — 11 redundant pairs found, weaker side dropped
+- [x] Stack (if shipped) beats standalone tuned GBM-on-v5-features in CV — fixed blend (0.2410) beats GBM alone (0.2441); Ridge meta-learner (0.2575) did not and was not shipped
+- [x] `model_description.md` updated with v5 section following the existing v1–v4 format
+
+**Result**: `scripts/v5.ipynb` executed end-to-end, CV NMAE 0.2410 (new best), submission
+`submissions/submission_20260702_1200_v5.csv`. Full writeup in `model_description.md` §v5.

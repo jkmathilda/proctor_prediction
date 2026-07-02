@@ -1,7 +1,7 @@
 {
-  "sessionCount": 4,
+  "sessionCount": 5,
   "lastSession": {
-    "startedAt": "2026-06-30T14:07:17.047Z",
+    "startedAt": "2026-07-02T09:05:51.989Z",
     "platform": "claude",
     "level": "Dynamic"
   },
@@ -9,24 +9,27 @@
     "proctor-prediction": {
       "phase": "check",
       "matchRate": 93,
-      "lastUpdated": "2026-06-30",
+      "lastUpdated": "2026-07-02",
       "analysisPath": "docs/03-analysis/proctor-prediction.analysis.md",
       "notebooks": {
         "v1": "models/claudev1.ipynb",
         "v2": "models/claudev2.ipynb",
-        "v3": "models/claudev3.ipynb"
+        "v3": "models/claudev3.ipynb",
+        "v5": "scripts/v5.ipynb"
       },
       "submissions": {
         "v1": "submissions/submission_20260630_1254_v1.csv",
-        "v2": "submissions/submission_20260630_1449_v2.csv"
+        "v2": "submissions/submission_20260630_1449_v2.csv",
+        "v5": "submissions/submission_20260702_1200_v5.csv"
       },
       "cvNMAE": {
         "xgb_baseline": 0.2612,
         "xgb_shap_selected": 0.2585,
-        "xgb_interaction_features": 0.2548
+        "xgb_interaction_features": 0.2548,
+        "v5_fixed_blend": 0.241
       },
-      "bestConfig": "inter_feats",
-      "notes": "v2 best: XGBoost + SHAP interaction features (NMAE=0.2548). v3: PINN with ZAV saturation + air-voids physics loss; ablation over λ_ZAV ∈ {0,0.5,1,5,10} + ensemble with XGBoost. Requires KMP_DUPLICATE_LIB_OK=TRUE; uses MPS (Apple Silicon)."
+      "bestConfig": "v5_fixed_blend",
+      "notes": "v2 best: XGBoost + SHAP interaction features (NMAE=0.2548). v3: PINN with ZAV saturation + air-voids physics loss; ablation over \u03bb_ZAV \u2208 {0,0.5,1,5,10} + ensemble with XGBoost. Requires KMP_DUPLICATE_LIB_OK=TRUE; uses MPS (Apple Silicon). v5 plan added 2026-07-02: SINDy sparse symbolic feature discovery + SHAP-guided refinement (materializing v2's redundant-pair/interaction findings) + GBM/PINN stacked ensemble. Target: beat v1's 0.2431 CV NMAE. v5 implemented 2026-07-02: SINDy (STLSQ static sparse symbolic regression, repurposed from dynamical-systems use) discovered 21 nonlinear feature terms; SHAP refinement dropped 11 redundant raw/log PSD cols and materialized 10 interaction product features (acting on v2 findings that were never applied); Optuna-tuned XGBoost (0.2441) blended 0.8/0.2 with a PINN diversity model (0.2776 alone) beat both individually and the Ridge-meta-learner alternative (0.2575): final CV NMAE 0.2410, new best. Required pinning OMP_NUM_THREADS=1 etc. before importing xgboost/lightgbm/shap/torch together in one process -- otherwise the run deadlocks at PINN training (first version to combine GBM and PINN in a single kernel)."
     }
   }
 }

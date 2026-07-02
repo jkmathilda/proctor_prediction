@@ -11,5 +11,6 @@ optuna
 shap
 shapiq
 statsmodels
+pysindy
 
 
