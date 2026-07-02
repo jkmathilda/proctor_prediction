@@ -27,7 +27,7 @@ Optimum water content: wopt
 <img width="480" height="320" alt="Image" src="https://github.com/user-attachments/assets/f838887a-22ff-4d3d-b171-35f83d594913" align='center' />
 <p align="center"><b>Figure 2.</b> The grain size distribution (left) describes the composition of soils according to the percentage mass fractions per grain size. Soils with predominantly fine-grained components can be described in terms of their plasticity using consistency limits (right). Both tests provide fundamental insights into compactability.</p>
 
-<img width="440" height="130" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" align='center' />
+<img width="440" height="300" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" align='center' />
 <p align="center"><b>Figure 3.</b> Influence of loss on ignition on the location of the Proctor optimum.</p>
 
 ### Process Information
