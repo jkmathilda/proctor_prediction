@@ -20,14 +20,14 @@ For this purpose, we are providing a dataset. This dataset should be used to dev
 Proctor density (maximum dry density): ρPr
 Optimum water content: wopt
 
-<img width="300" height="300" alt="Image" src="https://github.com/user-attachments/assets/158f0168-922e-4f70-8311-446b5d4d69d1" />
+<img width="500" height="500" alt="Image" src="https://github.com/user-attachments/assets/158f0168-922e-4f70-8311-446b5d4d69d1" align='center'/>
 <p align="center"><b>Figure 1.</b> Proctor curve based on 5 individual tests under varying water content with constant compaction energy. A polynomial function is used as a fitting function to determine the maximum dry density ρPr and the associated optimum water content wopt.</p>
 
-<img width="240" height="160" alt="Image" src="https://github.com/user-attachments/assets/8b06e853-b620-4ce4-8b99-92afab2f0283"  />
-<img width="240" height="160" alt="Image" src="https://github.com/user-attachments/assets/f838887a-22ff-4d3d-b171-35f83d594913" />
+<img width="480" height="320" alt="Image" src="https://github.com/user-attachments/assets/8b06e853-b620-4ce4-8b99-92afab2f0283" align='center' />
+<img width="480" height="320" alt="Image" src="https://github.com/user-attachments/assets/f838887a-22ff-4d3d-b171-35f83d594913" align='center' />
 <p align="center"><b>Figure 2.</b> The grain size distribution (left) describes the composition of soils according to the percentage mass fractions per grain size. Soils with predominantly fine-grained components can be described in terms of their plasticity using consistency limits (right). Both tests provide fundamental insights into compactability.</p>
 
-<img width="220" height="160" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" />
+<img width="440" height="1320" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" align='center' />
 <p align="center"><b>Figure 3.</b> Influence of loss on ignition on the location of the Proctor optimum.</p>
 
 ### Process Information
