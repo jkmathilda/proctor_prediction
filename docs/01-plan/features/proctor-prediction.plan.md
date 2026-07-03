@@ -219,11 +219,13 @@ Given PINNs underperform individually, v5 does **not** try to make PINN win outr
 
 ### 11.7 Acceptance Criteria
 
-- [x] CV NMAE ≤ 0.2431 (beats v1, the current best) — achieved 0.2410 (fixed blend, 0.8 GBM + 0.2 PINN)
+- [x] CV NMAE ≤ 0.2431 (beats v1, the current best) — achieved 0.2410-0.2420 across runs (fixed blend, 0.8 GBM + 0.2 PINN; Optuna's sampler is unseeded)
 - [x] At least one SINDy-discovered term shown (via re-run SHAP) to carry non-trivial importance in the GBM model — 9/31 new SINDy/interaction terms rank in the top 20 features
 - [x] No raw/log PSD duplicate pair both retained in final feature set — 11 redundant pairs found, weaker side dropped
-- [x] Stack (if shipped) beats standalone tuned GBM-on-v5-features in CV — fixed blend (0.2410) beats GBM alone (0.2441); Ridge meta-learner (0.2575) did not and was not shipped
+- [x] Stack (if shipped) beats standalone tuned GBM-on-v5-features in CV — fixed blend (0.2420) beats GBM alone (0.2450); Ridge meta-learner (0.2572) did not and was not shipped
 - [x] `model_description.md` updated with v5 section following the existing v1–v4 format
 
-**Result**: `scripts/v5.ipynb` executed end-to-end, CV NMAE 0.2410 (new best), submission
-`submissions/submission_20260702_1200_v5.csv`. Full writeup in `model_description.md` §v5.
+**Result**: `scripts/v5.ipynb` executed end-to-end, CV NMAE 0.2410-0.2420 across runs (new best), submission
+`submissions/submission_20260702_1515_v5.csv`. Also integrates `helper_functions.py`
+(`calc_satline`, `get_missing_data_report`) as behavior-neutral drop-ins per follow-up request.
+Full writeup in `model_description.md` §v5.

@@ -131,30 +131,32 @@
 ---
 
 ## v5 — SINDy Feature Discovery + SHAP Refinement + GBM/PINN Blend
-**File**: `scripts/v5.ipynb` | **Saved models**: `models/v5_xgb_mdd.pt`, `models/v5_xgb_owc.pt`, `models/v5_pinn_model.pt`
+**File**: `scripts/v5.ipynb` | **Saved models**: `models/v5_lgb_mdd.pt`, `models/v5_lgb_owc.pt`, `models/v5_pinn_model.pt`
 **Plan**: `docs/01-plan/features/proctor-prediction.plan.md` §11
 
 ### Pipeline
 1. **Preprocessing / baseline features** — identical to v1 (49 features: PSD raw + log, Cu/Cc/PI, missingness flags, median imputation).
 2. **SINDy sparse symbolic feature discovery** — PySINDy's STLSQ (built for `dx/dt=f(x)`) repurposed as *static* sparse regression: a degree-2 polynomial library over 11 physically-grounded base variables (D10/D30/D60, fines%, clay%, grain density, LOI, PI, log(kf), Cu, Cc) is reduced from 77 candidate terms to a compact surviving set per target via a 2D grid search over STLSQ's `(alpha, threshold)`. Default `alpha=0.05` (tuned for dynamical systems) was far too weak here — it let a collinear 77-term library on ~160 rows/fold blow up to a non-generalizing dense solution (NMAE-equivalent ~8); grid search found `alpha∈{1,2}, threshold=0.15` gives a stable fit. Surviving terms: 19 for MDD, 6 for OWC (21 unique, union). Standalone SINDy-formula NMAE-equivalent: 0.276 (MDD), 0.355 (OWC) — comparable to v1's Ridge baseline (0.335) despite being a handful of interpretable terms.
 3. **SHAP-guided refinement** — acts on two v2 findings that were surfaced but never applied: (a) drops the weaker (lower mean|SHAP|) side of each raw/log PSD pair (11 dropped, all `log_psd_size_at_dXX_mm`), (b) materializes the top-5 SHAP interaction pairs per target (via exact `shap_interaction_values`, restricted to base features to avoid interaction-of-interaction bloat) as explicit product features (10 unique pairs, e.g. `feat_cc × psd_size_at_d70_mm`). Net v5 feature set: 69 (70 v5-raw − 11 redundant + 10 interaction). Re-validated with SHAP afterward: 9/31 new SINDy/interaction terms rank in the top 20 features by importance — the guardrail v2 skipped.
-4. **GBM (primary)** — Optuna (50 trials × 4 model×target combos) tuning XGBoost/LightGBM on the 69-feature v5 set; XGBoost selected as primary (0.2441 CV NMAE vs LightGBM's 0.2455).
-5. **PINN (diversity, not primary)** — v3's twin-head architecture and physics loss (ZAV bound + Sr constraint) retrained unchanged on the v5 feature set. Confirmed again that PINN underperforms GBM at n=201 (0.2776 vs GBM's 0.2441) — consistent with v3/v4.
-6. **Ensembling** — out-of-fold GBM and PINN predictions combined two ways: a Ridge meta-learner (0.2575, worse than GBM alone — too little data for a reliable 2-feature meta-fit at n=201) and a CV-grid-searched fixed blend weight (same pattern as v1's XGB+LGB blend), which won: `0.8·GBM + 0.2·PINN` → **0.2410**, beating both GBM alone and v1's previous best.
-7. **Physical constraint** — same zero-air-voids saturation clip as v1/v3 (0 predictions clipped on the final blended test predictions).
+4. **GBM (primary)** — Optuna (50 trials × 4 model×target combos) tuning XGBoost/LightGBM on the 69-feature v5 set; LightGBM selected as primary (0.2450 CV NMAE vs XGBoost's 0.2489 — Optuna's sampler is unseeded, so which model wins by a hair varies run to run; both land in the same band).
+5. **PINN (diversity, not primary)** — v3's twin-head architecture and physics loss (ZAV bound + Sr constraint) retrained unchanged on the v5 feature set, with the ZAV formula itself now delegated to `helper_functions.calc_satline` (see below). Confirmed again that PINN underperforms GBM at n=201 (0.2776 vs GBM's 0.2451) — consistent with v3/v4.
+6. **Ensembling** — out-of-fold GBM and PINN predictions combined two ways: a Ridge meta-learner (0.2572, worse than GBM alone — too little data for a reliable 2-feature meta-fit at n=201) and a CV-grid-searched fixed blend weight (same pattern as v1's XGB+LGB blend), which won: `0.8·GBM + 0.2·PINN` → **0.2420**, beating both GBM alone and v1's previous best.
+7. **Physical constraint** — same zero-air-voids saturation clip as v1/v3, now via `helper_functions.calc_satline` (3 predictions clipped on the final blended test predictions).
 
 ### Key Points
 - SINDy's `dx/dt=f(x)` machinery is legitimately reusable as generic sparse symbolic regression by treating samples as if they were time steps — the STLSQ solver itself doesn't know the difference, but its default regularization strength assumes cleaner, lower-dimensional dynamical-systems libraries, so it needed retuning for this collinear polynomial library.
 - SHAP work is only valuable if acted on: v2 computed the same redundancy/interaction findings months earlier but never engineered them back into a model; doing so here moved default-XGBoost NMAE from 0.2612 (v1 feature set) to 0.2560 (v5-refined, pre-tuning) — a "free" ~0.005 improvement before any hyperparameter search.
-- PINN's role changed from "candidate primary model" (v3/v4) to "diversity source for ensembling" — it still underperforms solo, but a small (20%) blend weight extracts a genuine ~0.003 NMAE improvement over GBM alone, more than the Ridge meta-learner could recover from the same two prediction streams.
+- PINN's role changed from "candidate primary model" (v3/v4) to "diversity source for ensembling" — it still underperforms solo, but a small (20%) blend weight extracts a genuine improvement over GBM alone, more than the Ridge meta-learner could recover from the same two prediction streams.
+- **`helper_functions.py` reuse**: v1–v4 never imported the course-provided helper library (only `starter.ipynb` did, for its MICE-based imputation pipeline). v5 reuses the pieces that are behavior-neutral drop-ins — `calc_satline` (mathematically identical to the hand-rolled ZAV formula it replaced in both the PINN physics loss and the final constraint; verified to work on torch tensors too, being pure arithmetic) and `get_missing_data_report` (EDA visibility) — without adopting the MICE/DIN-fraction feature-engineering pipeline, since that would change the feature set the SINDy/SHAP/Optuna search was validated against. `load_and_summarize_data` was tried but doesn't fit this repo's layout (it assumes train/test/sample_submission share one directory; here `sample_submission.csv` lives at repo root while `train.csv`/`test.csv` are under `data/`).
 - **Environment note**: mixing XGBoost/LightGBM/SHAP (OpenMP-threaded) with PyTorch in one process deadlocks on this machine the instant `DataLoader` starts iterating. Fixed by pinning `OMP_NUM_THREADS=1` (and `OPENBLAS_/MKL_/VECLIB_MAXIMUM_/NUMEXPR_NUM_THREADS`) plus `torch.set_num_threads(1)` before any of these libraries are imported — necessary because v5 is the first version to combine GBM and PINN in a single kernel.
+- Optuna's `TPESampler` isn't seeded, so re-running the notebook gives slightly different tuned hyperparameters and a slightly different final NMAE each time (observed range: 0.2410–0.2420 across runs) — always beats v1's 0.2431, but don't treat the third decimal as exact.
 
-### Results (5-fold CV)
+### Results (5-fold CV, this run)
 | Model | CV NMAE |
 |-------|---------|
-| **v5 fixed blend (0.8·GBM + 0.2·PINN)** | **0.2410** |
+| **v5 fixed blend (0.8·GBM + 0.2·PINN)** | **0.2420** |
 | v1 tuned LightGBM (paper baseline, 49 feats) | 0.2431 |
-| v5 tuned XGBoost (69 feats) | 0.2441 |
-| v5 tuned LightGBM (69 feats) | 0.2455 |
-| v5 Ridge stack (GBM+PINN meta-learner) | 0.2575 |
+| v5 tuned LightGBM (69 feats) | 0.2450 |
+| v5 tuned XGBoost (69 feats) | 0.2489 |
+| v5 Ridge stack (GBM+PINN meta-learner) | 0.2572 |
 | v5 PINN alone (69 feats) | 0.2776 |
