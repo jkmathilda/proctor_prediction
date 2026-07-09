@@ -229,3 +229,70 @@ Given PINNs underperform individually, v5 does **not** try to make PINN win outr
 `submissions/submission_20260702_1515_v5.csv`. Also integrates `helper_functions.py`
 (`calc_satline`, `get_missing_data_report`) as behavior-neutral drop-ins per follow-up request.
 Full writeup in `model_description.md` §v5.
+
+---
+
+## 12. v7 Plan — KNN Diversity Model
+
+**Added**: 2026-07-06
+**Baseline to beat**: v5 fixed blend, CV NMAE **0.2410–0.2420** (current best, see `model_description.md` §v5)
+
+### 12.1 Where v1–v6 left off
+
+| Version | Approach | CV NMAE | Verdict |
+|---|---|---|---|
+| v1 | XGBoost/LightGBM + Optuna | **0.2431** | Best tree-only baseline |
+| v2 | SHAP/SHAPIQ analysis on v1 | 0.2548 (feature-pruned) | Pruning alone hurt; surfaced unused feature leads |
+| v3 | Twin-head PINN, physics loss | 0.2726 | Underpowered alone; 0 ZAV violations |
+| v4 | Single-head PINN script | N/A (hold-out only) | Lighter features, no CV |
+| v5 | SINDy + SHAP refinement + GBM/PINN fixed blend | **0.2410–0.2420** | Current best; PINN useful only as diversity term |
+| v6 | `scripts/v6.py` — organizers' `helper_functions.py` wired into a full leak-free CV pipeline (MICE imputation, ExtraTrees/HistGB/Ridge/PINN registry, random/Optuna tuning, ensemble prediction, saturation clip) | not yet logged in `model_description.md` | Infrastructure/reusability upgrade — no new model family introduced, still no KNN candidate |
+
+**Reading**: every version so far is either gradient boosting (global, additive) or a neural net (global, smooth). No version has tried a purely local, distance-based method. v3/v5 showed that a weaker standalone model (PINN) can still add value as an ensemble diversity term. v7 asks whether KNN — a different inductive bias again (local neighborhood averaging vs. global function approximation) — can play the same diversity role, independent of whether it's competitive alone.
+
+### 12.2 Method — KNN as a standalone diversity model
+
+- **Model**: `sklearn.neighbors.KNeighborsRegressor` wrapped for the two targets (`MultiOutputRegressor`, or two independent single-target KNN models if the optimal `k`/metric differs meaningfully between MDD and OWC).
+- **Feature set**: reuse v5's SINDy-discovered + SHAP-refined feature set (§11.3) rather than re-deriving features — isolates this experiment to a model-family comparison, not a feature-engineering one.
+- **Preprocessing**: KNN is scale-sensitive, unlike the tree models used so far — features must be scaled (reuse the `PowerTransformer`/`RobustScaler`/`StandardScaler` group assignments already computed in v6's `get_scaler_assignments`). This is a new requirement v1–v6's tree-based paths didn't need.
+- **Hyperparameters to sweep**: `n_neighbors` (3–15), `weights` (uniform vs. distance), distance metric (Euclidean vs. Manhattan vs. a whitened/Mahalanobis-style metric), swept independently per target.
+- **Missing values**: KNN cannot fit through NaNs the way `HistGradientBoostingRegressor` can — rely on the same fold-isolated MICE imputation already used in v5/v6 before fitting.
+- **Dimensionality risk**: after v5's SINDy/interaction additions the feature set is 30+ columns on 201 training rows — likely too high-dimensional for distance metrics to stay meaningful. Also test a small hand-picked or PCA-reduced feature subset as a fallback.
+
+### 12.3 Evaluation & ensembling
+
+- Same 5-fold `KFold(shuffle=True, random_state=42)` and fixed-IQR NMAE as v1–v6 — results must stay comparable to `model_description.md`.
+- Report standalone KNN CV NMAE first. A negative result (KNN alone is not competitive) is an acceptable, documented outcome — v2 already established that "not the best solo model" doesn't mean "not useful."
+- If standalone KNN underperforms both GBM and PINN (expected), test its ensembling value: OOF-blend KNN into v5's GBM+PINN mix via a fixed-weight blend or Ridge meta-learner (same pattern as v5 §11.4). Ship only if the 3-way blend beats v5's 0.2410 fixed blend.
+
+### 12.4 Validation & Guardrails
+
+- KNN's imputer and scaler fit on train folds only — no leakage, per existing plan §7 risk register.
+- Saturation-line clip (`design.md` §5.5) still applied post-hoc regardless of which model wins.
+- Explicitly log whether KNN helps only as an ensemble term or not at all — don't force a shipped submission if it adds nothing.
+
+### 12.5 Deliverables
+
+| Deliverable | Description |
+|---|---|
+| `scripts/v7.ipynb` | Standalone KNN CV evaluation + optional blend with v5's GBM/PINN |
+| `model_description.md` (v7 section) | KNN CV NMAE (standalone + blended), hyperparameter choices, comparison vs. v1–v6 |
+| `submissions/submission_YYYYMMDD_v7.csv` | Final v7 prediction file (only if it beats or matches v5) |
+
+### 12.6 Acceptance Criteria
+
+- [x] Standalone KNN CV NMAE reported and compared against v1 (0.2431) and v5 (0.2410–0.2420) — best KNN config 0.3502 OOF NMAE, not competitive with either
+- [x] Feature scaling applied correctly (KNN requires it; tree models so far did not) — KNN candidates run with `scaled=True` through `get_column_preprocessor`
+- [x] If blended: blend CV NMAE ≤ v5's 0.2410 fixed blend, else ship v5 as-is and document KNN as a negative result — blend reached only 0.2493 (doesn't beat v5); documented as negative result, v5 ships as-is
+- [x] No leakage: imputer/scaler fit on train folds only — reused v6's fold-isolated MICE + per-fold scaler fitting unchanged
+- [x] `model_description.md` updated with a v7 section following the existing v1–v6 format
+
+**Result**: `scripts/v7.py` executed end-to-end (5-fold CV, folds stratified on dominant soil-composition
+bucket — Sand/Gravel/Fine — per follow-up request, instead of v1–v6's plain shuffled `KFold`). KNN is not
+competitive standalone (0.3502 vs. ExtraTrees' 0.2497 OOF NMAE) and adds no real ensemble value (best
+blend 0.2493, within noise of the blend-weight search itself). Also surfaced and worked around a
+pre-existing bug in `scripts/v6.py`'s per-fold NMAE table (used per-fold-local IQR instead of the fixed
+global IQR §6 specifies) without modifying `v6.py` itself. v7 does not beat v5 — **v5 (0.2410–0.2420)
+remains the project's best**; `submissions/submission_20260706_v7.csv` is kept for reference per
+follow-up request, but should not be used as the competition entry. Full writeup in
+`model_description.md` §v7.

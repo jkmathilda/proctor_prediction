@@ -442,3 +442,70 @@ Install: `pip install pandas numpy scikit-learn xgboost lightgbm optuna matplotl
 ```
 
 **Next**: `/pdca do proctor-prediction` → implement `solution.ipynb` following Sections 0–10 above.
+
+---
+
+## 11. v7 Design — KNN Diversity Model + USCS Particle-Class Features
+
+**Added**: 2026-07-06
+**References**: `docs/01-plan/features/proctor-prediction.plan.md` §12 (v7 Plan)
+
+### 11.1 Requested feature set vs. what already exists
+
+**Correction (2026-07-06, during Do phase)**: §4.1's `feat_*` names describe the original v1 design, but v6/v7's actual pipeline builds features via `helper_functions.py` (`prepare_features` / `apply_fold_feature_engineering`), which was never backported into this design doc. Checked against **that** (the real code v7 builds on), not §4.1:
+
+| Requested column | Definition | Status |
+|---|---|---|
+| `clay` | `psd_passing_at_0_002mm_pct` | Already computed as `psd_fraction_clay` (`helper_functions.prepare_features`) — alias, no new info |
+| `silt` | `psd_passing_at_0_063mm_pct - psd_passing_at_0_002mm_pct` | Already computed as `psd_fraction_silt` (same function) |
+| `sand` | `psd_passing_at_2mm_pct - psd_passing_at_0_063mm_pct` | Already computed as `psd_fraction_sand` (same function) |
+| `gravel` | `100 - psd_passing_at_2mm_pct` | Already computed as `psd_fraction_gravel` (same function) |
+| `ip` | `atterberg_liquid_limit_pct - atterberg_plastic_limit_pct` | Already computed as `atterberg_plasticity_index` (`apply_fold_feature_engineering`, post coarse-soil override) |
+| `fine-grained` | `(clay + silt) > 12` | **New** — not computed anywhere in `helper_functions.py`; distinct from the design's old §4.3 3-way `feat_soil_type` idea (10%/40% thresholds), which was also never implemented in the actual pipeline |
+
+Only **one** column is genuinely new: the **`fine_grained`** boolean (renamed from `fine-grained` — a hyphen isn't a valid identifier). Everything else the user listed (`clay`/`silt`/`sand`/`gravel`/`ip`) is already present, verbatim, as `psd_fraction_clay/silt/sand/gravel` and `atterberg_plasticity_index` once `base_feature_engineering` (`add_gradation_parameters` + `prepare_features`) and `apply_fold_feature_engineering` have run — no new columns to add for those five.
+
+```python
+# v7's only new column — everything else already exists as psd_fraction_clay/silt/sand/gravel
+# and atterberg_plasticity_index via helper_functions.py (prepare_features / apply_fold_feature_engineering)
+df['fine_grained'] = ((df['psd_fraction_clay'] + df['psd_fraction_silt']) > 12).astype(int)  # NEW
+```
+
+### 11.2 Why this needs care specifically for KNN
+
+`psd_fraction_clay/silt/sand/gravel` sum to exactly 100% by construction (each is a slice of the same PSD passing curve) — a **compositional** decomposition of the 3 raw passing-% columns already in `NUMERIC_COLS` (§3.1). For tree models this redundancy is harmless; trees split on thresholds and don't care about linear reparameterization. For **KNN's distance metric it is not free** — feeding both the raw passing-% columns and their linear recombinations (the `psd_fraction_*` set) double-counts the same underlying signal in the Euclidean/Manhattan distance, effectively over-weighting the fines-content axis relative to everything else (Atterberg, hydraulic, grain density). In practice `helper_functions.py` computes both (raw `psd_passing_at_*` columns stay in the frame alongside the derived `psd_fraction_*`), so v7 must choose which side feeds KNN's distance metric rather than passing both through untouched.
+
+Guidance for the v7 KNN feature set (`scripts/v7.py`):
+- Use the `psd_fraction_clay/silt/sand/gravel` decomposition **instead of**, not in addition to, the 3 raw PSD passing-% columns for the KNN distance computation — pick one representation, not both.
+- `fine_grained` is a 0/1 boolean — safe to include directly in a scaled distance metric (post-scaling a boolean sits on a comparable footing to standardized continuous features).
+
+### 11.3 Where this plugs into v7's pipeline
+
+- Computed as part of the same pre-CV feature engineering step used in v6 (`base_feature_engineering`), immediately after `psd_fraction_clay`/`psd_fraction_silt` exist — fit on train folds only, no leakage, consistent with plan.md §12.4.
+- Feeds into the KNN feature set alongside the rest of `helper_functions.py`'s engineered columns; scaled via the same `get_column_preprocessor`/`get_scaler_assignments` grouping already used in `scripts/v6.py`, since KNN needs scaling that the tree-based candidates don't.
+
+### 11.4a Soil-composition-stratified CV folds (added 2026-07-06, follow-up request)
+
+v1–v6 all split CV folds with a plain shuffled `KFold(shuffle=True, random_state=42)`. At n=201, a random split can by chance put a disproportionate share of one soil-composition class (e.g. most of the few Silt/Clay-dominant samples) into a single fold, making that fold's score noisier and less representative. `v7.py` instead:
+
+- Buckets each sample into a dominant DIN fraction — **Sand**, **Gravel**, or **Fine** (= clay% + silt%) — using the same boundaries as `scripts/data_split_by_soil.py`. Clay is merged into Fine rather than kept as its own class: `train.csv` has only 1 clay-dominant sample (full breakdown: Sand=129, Gravel=45, Silt=26, Clay=1), and `sklearn.StratifiedKFold` requires every class to have at least `n_splits` members.
+- Passes this 3-class label to `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)` instead of plain `KFold`, so every fold gets a proportional Sand/Gravel/Fine mix.
+- `v6.py` itself is not modified (its `run_cv_pipeline` still defaults to plain `KFold`, keeping v1–v6's documented results reproducible) — `v7.py` instead carries its own `run_cv_pipeline_stratified`, a copy of `run_cv_pipeline`'s body that accepts precomputed fold indices.
+
+### 11.4 Scaling for KNN
+
+All continuous features feeding KNN (including `fine_grained` and whichever PSD representation is chosen) must be scaled before fitting — reuse `scripts/v6.py`'s `get_scaler_assignments`/`get_column_preprocessor` grouping, fit on train folds only, per plan.md §12.2.
+
+### 11.5 Implementation note (Do phase, 2026-07-06)
+
+Delivered as **`scripts/v7.py`**, not `scripts/v7.ipynb` as originally planned — mirrors v6's own deviation from its planned notebook format. `v7.py` imports `scripts/v6.py` directly (`run_cv_pipeline`, `nmae`, `ProctorPINNRegressor`, etc.) rather than re-implementing the CV/registry machinery, and adds `KNN` as a new scaled candidate family evaluated inside the *same* CV run as the existing ExtraTrees/HistGB/Ridge/PINN candidates — this keeps out-of-fold predictions fold-aligned so KNN's blend value (plan.md §12.3) can be tested without leakage, which a fully separate standalone script/notebook re-splitting its own folds could not guarantee.
+
+**Result**: ran end-to-end (5-fold CV, folds stratified on dominant soil-composition bucket — Sand/Gravel/Fine — per follow-up request, since a plain shuffled KFold at n=201 can by chance concentrate rare soil compositions into one fold). Found and worked around a pre-existing `v6.py` bug (its per-fold NMAE table uses a per-fold-local IQR, not the fixed global IQR §5.2 specifies) by scoring model selection from OOF arrays directly. KNN standalone: 0.3502 OOF NMAE (not competitive vs. ExtraTrees' 0.2497). Blend (0.95·ExtraTrees + 0.05·KNN): 0.2493 — a 0.0004 change within blend-search noise, and still worse than v5's 0.2410–0.2420. Per plan.md §12.6, this does not beat v5 — documented as a negative result in `model_description.md` §v7; v5 remains the project's best; `submissions/submission_20260706_v7.csv` kept for reference only, per follow-up request. Full writeup in `model_description.md` §v7.
+
+### 11.6 PDCA Status (v7)
+
+```
+[Plan] ✅ → [Design] ✅ → [Do] ✅ → [Check] ⏳ → [Act] ⏳
+```
+
+**Next**: `/pdca analyze v7` to run gap-detector against this design, or treat v7 as closed (negative result) and move to the next modeling idea.

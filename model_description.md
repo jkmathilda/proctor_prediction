@@ -10,6 +10,7 @@
 
 | Version | Approach | CV NMAE | Submission |
 |---------|----------|---------|------------|
+| [v7](#v7--knn-diversity-model--uscs-particle-class-features) | KNN (standalone + blend) on v6's helper-based pipeline, soil-composition-stratified CV | 0.2493 (0.3502 standalone) | submission_20260706_v7.csv (kept for reference — worse than v5, do not submit) |
 | [v5](#v5--sindy-feature-discovery--shap-refinement--gbmpinn-blend) | SINDy features + SHAP refinement + GBM/PINN blend | **0.2410** | submission_20260702_1200_v5.csv |
 | [v4](#v4--standalone-pinn-script) | PINN (single-head script, hold-out only) | N/A (no full CV) | submission20250630_1544_v4.csv |
 | [v3](#v3--physics-informed-neural-network-twin-head-pinn) | PINN (twin-head, physics loss in training) | 0.2726 ± 0.0257 | submission_20260630_1630_v3_pinn.csv |
@@ -160,3 +161,38 @@
 | v5 tuned XGBoost (69 feats) | 0.2489 |
 | v5 Ridge stack (GBM+PINN meta-learner) | 0.2572 |
 | v5 PINN alone (69 feats) | 0.2776 |
+
+---
+
+## v7 — KNN Diversity Model + USCS Particle-Class Features
+**File**: `scripts/v7.py` (not a notebook — see Key Points) | **Log**: `docs/v7_logs/proctor_v7_run.log`
+**Plan**: `docs/01-plan/features/proctor-prediction.plan.md` §12 | **Design**: `docs/02-design/features/proctor-prediction.design.md` §11
+
+### Pipeline
+1. **Base pipeline reused from v6** — `scripts/v6.py`'s leak-free CV pipeline (fold-isolated MICE imputation via `helper_functions.get_default_mice_imputer`, `helper_functions.prepare_features`/`add_gradation_parameters` for DIN grain-size fractions + log-ratio PSD terms, `apply_fold_feature_engineering` for PI/log(kf)/interaction terms, registry-based ensemble prediction, saturation-line clip). `v7.py` imports `v6.py` directly rather than re-implementing this machinery.
+2. **New feature: `fine_grained`** — of the six user-requested columns (`clay`, `silt`, `sand`, `gravel`, `fine-grained`, `ip`), five already existed verbatim in `helper_functions.py` as `psd_fraction_clay/silt/sand/gravel` and `atterberg_plasticity_index`. Only `fine_grained = (psd_fraction_clay + psd_fraction_silt) > 12` was new; added as a single boolean column in the pre-CV feature engineering step.
+3. **KNN candidate family** — `KNeighborsRegressor` swept over `n_neighbors ∈ {3,5,7,9,11,15} × weights ∈ {uniform,distance} × metric ∈ {euclidean,manhattan}` (24 configs), scaled (KNN requires it, unlike the tree-based candidates) via the same `get_column_preprocessor` grouping v6 uses. Run inside the *same* CV loop as v6's ExtraTrees/HistGB/Ridge/PINN candidates so all out-of-fold predictions are fold-aligned and safely blendable.
+4. **Blend search** — fixed-weight grid search (21 steps, α∈[0,1]) blending the best KNN config with the best non-KNN config, same pattern as v5's GBM/PINN blend.
+5. **Soil-composition-stratified CV folds** — added per follow-up request. v1–v6 all split folds with a plain shuffled `KFold`, which at n=201 can by chance concentrate rare soil compositions into one or two folds. `v7.py`'s `soil_composition_strata()` buckets each sample by its dominant DIN fraction (Sand/Gravel/Fine, where Fine = clay% + silt%) and feeds that into `StratifiedKFold` instead, so every fold gets a proportional share of Sand/Gravel/Fine samples. Clay is merged into the Fine bucket rather than kept separate: `train.csv` has only 1 clay-dominant sample (full counts: Sand=129, Gravel=45, Silt=26, Clay=1, via `scripts/data_split_by_soil.py`), and `StratifiedKFold` requires every class to have at least `n_splits` members.
+
+### Key Points
+- **Bug found and fixed in-flight**: `v6.run_cv_pipeline`'s per-fold results table scores each fold using an IQR computed from that fold's own ~40-row `y_va` subset, not the fixed global IQR that plan.md §6 / design.md §5.2 specify ("computed once from all available training targets... do not recompute per fold"). This inflates/deflates individual fold scores and makes the reported "mean" not directly comparable across model families with different fold-to-fold variance. `v7.py` does not fix `v6.py` itself (out of scope — v6 already shipped) but computes its own model-selection metric directly from each candidate's full out-of-fold array against the fixed global IQR (`oof_nmae` in the log), and uses *that* for `best_knn`/`best_non_knn`/blend decisions instead of the inherited per-fold table.
+- **KNN is not competitive standalone**: best KNN config (`n_neighbors=3, weights=distance, metric=manhattan`) scores 0.3502 OOF NMAE vs. ExtraTrees' 0.2497 — confirms design.md §11.2's dimensionality concern (KNN's distance metric struggles with ~40 features on 201 rows) and plan.md §12.3's expectation that KNN would likely underperform GBM alone.
+- **KNN adds no real ensemble value either**: the blend search found `0.95·ExtraTrees + 0.05·KNN → 0.2493`, only 0.0004 below ExtraTrees alone (0.2497) — a difference far smaller than the fold-to-fold std (~0.02–0.09) and consistent with grid-searching a blend weight on the same OOF data used to score it (the search will find *some* nonzero weight for almost any second model, even a weak one, without that reflecting real signal).
+- **Manhattan clearly beats Euclidean for this feature set** — every Manhattan-metric KNN config outperforms every Euclidean one (best Manhattan 0.3502 vs. best Euclidean 0.4632), consistent with the compositional/mixed-scale nature of the `psd_fraction_*` + engineered feature set (Euclidean distance is more sensitive to a handful of large-magnitude dimensions dominating the distance calculation).
+- **v6's own candidates (ExtraTrees 0.2497, HistGB 0.2501) don't beat v5's 0.2410–0.2420** either — v6's DIN-fraction/log-ratio feature set (no SINDy discovery, no SHAP refinement) is a weaker base than v5's, so v7 was never going to reach a new overall best through the model-family swap alone.
+- **Stratified folds moved the numbers slightly but not the conclusion**: ExtraTrees' OOF NMAE improved marginally (0.2517 → 0.2497) once folds carried a proportional Sand/Gravel/Fine mix, and the KNN blend followed suit (0.2515 → 0.2493) — the CV estimate is somewhat more trustworthy this way, but the gap between KNN-blend and ExtraTrees-alone stayed within noise either way.
+- **Per plan.md §12.6's acceptance criteria**: not met — the blend does not beat v5's 0.2410–0.2420, so **v5 remains the project's best submission**; v7 is documented here as a negative result. `submissions/submission_20260706_v7.csv` is kept for reference (per follow-up request) but should **not** be used as the competition entry — it is worse than v5's existing submission.
+- **Delivered as `scripts/v7.py`, not `scripts/v7.ipynb`** as originally planned — mirrors v6's own deviation from its planned notebook format, and lets `v7.py` `import v6` directly to reuse ~700 lines of existing pipeline code instead of duplicating it in a notebook. The stratified-fold CV loop (`run_cv_pipeline_stratified`) is a copy of `v6.run_cv_pipeline`'s body with the fold source swapped out — `v6.py` itself was intentionally left unmodified so its already-documented results stay reproducible.
+
+### Results (5-fold CV, stratified folds, OOF NMAE against fixed global IQR)
+| Model | OOF NMAE |
+|-------|---------|
+| v5 fixed blend (existing best, for reference) | 0.2410–0.2420 |
+| ExtraTrees (v6 base pipeline) | 0.2497 |
+| **v7 blend (0.95·ExtraTrees + 0.05·KNN)** | **0.2493** |
+| HistGB (v6 base pipeline) | 0.2501 |
+| Ridge (v6 base pipeline) | 0.2846 |
+| PINN (v6 base pipeline) | 0.3160 |
+| Best standalone KNN (n=3, distance, manhattan) | 0.3502 |
+| Worst KNN config (n=15, uniform, euclidean) | 0.5804 |
