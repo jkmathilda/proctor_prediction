@@ -538,7 +538,7 @@ def parse_args():
                    help="CSV of per-sample predictive std (empty string to skip)")
     p.add_argument("--report_dir", default=".")
     p.add_argument("--log", default="proctor_gpr.log")
-    p.add_argument("--folds", type=int, default=5,
+    p.add_argument("--folds", type=int, default=3,
                    help="number of StratifiedShuffleSplit splits")
     p.add_argument("--val_frac", type=float, default=0.2,
                    help="validation fraction per split (test_size)")
