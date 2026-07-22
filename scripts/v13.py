@@ -1,5 +1,5 @@
 """
-proctor_gpr.py (v15)
+proctor_gpr.py (v13)
 ====================
 Gaussian Process Regression for the LeiGS 2026 Proctor Challenge.
 
@@ -610,7 +610,7 @@ def parse_args():
     p.add_argument("--log", default="proctor_gpr.log")
     p.add_argument("--folds", type=int, default=5,
                    help="number of stratified k-fold splits")
-    p.add_argument("--repeats", type=int, default=3,
+    p.add_argument("--repeats", type=int, default=1,
                    help="repeat the k-fold with different seeds and average the "
                         "OOF predictions (more stable on small data)")
     p.add_argument("--val_strata", type=int, default=5,
@@ -635,7 +635,7 @@ def parse_args():
                    help="always keep at least this many (most relevant) features")
     p.add_argument("--linear", action="store_true",
                    help="add a linear (DotProduct) kernel term for global trends")
-    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=True,
+    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=False,
                    help="blend the GP with gradient-boosted trees (recommended)")
     p.add_argument("--no_ensemble", dest="ensemble", action="store_false",
                    help="use the GP alone (no blend)")

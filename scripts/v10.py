@@ -529,10 +529,10 @@ def main(args):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", default=".")
-    p.add_argument("--helpers_dir", default=".")
-    p.add_argument("--out", default="submission_gpr.csv")
-    p.add_argument("--model_out", default="proctor_gpr.pt",
+    p.add_argument("--data_dir", default="/Users/aliceqi/Documents/GitHub/proctor-prediction-challenge/data")
+    p.add_argument("--helpers_dir", default="/Users/aliceqi/Documents/GitHub/proctor-prediction-challenge")
+    p.add_argument("--out", default="/Users/aliceqi/Documents/GitHub/proctor-prediction-challenge/submissions/submission_v10_gpr+mice_nofold.csv")
+    p.add_argument("--model_out", default="v10_gpr+mice_nofold.pt",
                    help="path to save the fitted GP model as a .pt file (empty to skip)")
     p.add_argument("--uncertainty_out", default="gpr_uncertainty.csv",
                    help="CSV of per-sample predictive std (empty string to skip)")
@@ -564,7 +564,7 @@ def parse_args():
                    help="always keep at least this many (most relevant) features")
     p.add_argument("--linear", action="store_true",
                    help="add a linear (DotProduct) kernel term for global trends")
-    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=True,
+    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=False,
                    help="blend the GP with gradient-boosted trees (recommended)")
     p.add_argument("--no_ensemble", dest="ensemble", action="store_false",
                    help="use the GP alone (no blend)")

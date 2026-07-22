@@ -1,0 +1,107 @@
+Gaussian Process regression baseline (small-data model)
+seed=42  folds=1  seed=42  folds=1  kernel restarts=6
+train shape=(201, 25)  test shape=(87, 23)
+features=39  MICE-imputed columns=38
+StratifiedShuffleSplit: 1 splits, test_size=0.20, 5 density strata
+split 1 GP-NMAE = 0.2091
+validation coverage: 41/201 rows scored across splits
+
+Blend weights (GP share per target): {'proctor_mdd_g_cm3': 1.0, 'proctor_owc_pct': 0.35}
+
+===== VALIDATION EVALUATION (averaged over splits) =====
+Aggregate NMAE  GP-only: 0.2091
+Aggregate NMAE  GBT-only: 0.2319
+Aggregate NMAE  BLEND:    0.1976
+Per-split BLEND NMAE: mean 0.1976  std 0.0000  (min 0.1976, max 0.1976)
+target                        MAE       RMSE       R2       mean σ
+proctor_mdd_g_cm3          0.0374     0.0536    0.855        0.044
+saved -> ./gpr_pred_vs_actual_proctor_mdd_g_cm3.png
+proctor_owc_pct            1.0593     1.3357    0.820        1.227
+saved -> ./gpr_pred_vs_actual_proctor_owc_pct.png
+
+Saved GP model -> proctor_gpr.pt
+  learned kernel [proctor_mdd_g_cm3]: 1.78**2 * Matern(length_scale=[65.9, 3.27, 11.3, 9.13, 19.4, 8.5, 1.55, 5.45, 6.44, 32.3, 15.5, 16, 3.75], nu=2.5) + WhiteKernel(noise_level=0.0757)
+  learned kernel [proctor_owc_pct]: 1.55**2 * Matern(length_scale=[66.6, 20.3, 3.36, 8.07, 15.9, 7.14, 3.67, 4.85, 8.19, 1.44, 12.6, 8.07, 9.33, 10.7, 20.1], nu=2.5) + WhiteKernel(noise_level=0.11)
+
+ARD feature relevance (shortest length-scale = most informative):
+  [proctor_mdd_g_cm3] kept 13/48 features after selection
+      psd_C_U                            length-scale=1.55
+      psd_size_at_d10_mm                 length-scale=3.27
+      casagrande_interaction             length-scale=3.75
+      psd_fraction_sand                  length-scale=5.45
+      log_diff_psd_size_at_d95_mm        length-scale=6.44
+      loss_on_ignition_pct               length-scale=8.5
+      psd_passing_at_0_063mm_pct         length-scale=9.13
+      psd_size_at_d30_mm                 length-scale=11.3
+      psd_C_U_is_low                     length-scale=15.5
+      skempton_index                     length-scale=16
+  [proctor_owc_pct] kept 15/48 features after selection
+      psd_C_U                            length-scale=1.44
+      psd_passing_at_0_063mm_pct         length-scale=3.36
+      atterberg_liquid_limit_pct         length-scale=3.67
+      atterberg_plastic_limit_pct        length-scale=4.85
+      hyd_cond_hyd_gradient              length-scale=7.14
+      psd_fraction_gravel                length-scale=8.07
+      psd_passing_at_2mm_pct             length-scale=8.07
+      loss_on_ignition_pct               length-scale=8.19
+      log_diff_psd_size_at_d40_mm        length-scale=9.33
+      log_diff_psd_size_at_d98_mm        length-scale=10.7
+Wrote per-sample uncertainty -> gpr_uncertainty.csv
+
+Wrote 87 predictions -> submission_gpr.csv
+Run log -> ./proctor_gpr.log
+(base) aliceqi@Alices-MacBook-Air working % /Users/aliceqi/Docu
+ments/GitHub/proctor-prediction-challenge/.venv/bin/python /Use
+rs/aliceqi/Documents/GitHub/proctor-prediction-challenge/script
+s/v10.py
+Gaussian Process regression baseline (small-data model)
+seed=42  folds=1  kernel restarts=6
+Warnung: Lokales Fallback-Verzeichnis '/Users/aliceqi/Documents/GitHub/proctor-prediction-challenge/working/kaggle/input' existiert nicht.
+Zufallsseed auf 42 gesetzt für Reproduzierbarkeit.
+train shape=(201, 25)  test shape=(87, 23)
+features=39  MICE-imputed columns=38
+StratifiedShuffleSplit: 1 splits, test_size=0.20, 5 density strata
+split 1 GP-NMAE = 0.2091
+validation coverage: 41/201 rows scored across splits
+
+Blend weights (GP share per target): {'proctor_mdd_g_cm3': 1.0, 'proctor_owc_pct': 0.35}
+
+===== VALIDATION EVALUATION (averaged over splits) =====
+Aggregate NMAE  GP-only: 0.2091
+Aggregate NMAE  GBT-only: 0.2323
+Aggregate NMAE  BLEND:    0.1978
+Per-split BLEND NMAE: mean 0.1978  std 0.0000  (min 0.1978, max 0.1978)
+target                        MAE       RMSE       R2       mean σ
+proctor_mdd_g_cm3          0.0374     0.0536    0.855        0.044
+saved -> ./gpr_pred_vs_actual_proctor_mdd_g_cm3.png
+proctor_owc_pct            1.0606     1.3350    0.821        1.227
+saved -> ./gpr_pred_vs_actual_proctor_owc_pct.png
+
+Saved GP model -> proctor_gpr.pt
+  learned kernel [proctor_mdd_g_cm3]: 1.78**2 * Matern(length_scale=[65.9, 3.27, 11.3, 9.13, 19.4, 8.5, 1.55, 5.45, 6.44, 32.3, 15.5, 16, 3.75], nu=2.5) + WhiteKernel(noise_level=0.0757)
+  learned kernel [proctor_owc_pct]: 1.83**2 * Matern(length_scale=[1e+03, 27.9, 22.6, 5.35, 11.5, 29.6, 16.1, 21.2, 4.21, 8.58, 1.57, 22.6, 7.41, 11.5, 11.2, 10.4, 18.7, 8.6], nu=2.5) + WhiteKernel(noise_level=0.105)
+
+ARD feature relevance (shortest length-scale = most informative):
+  [proctor_mdd_g_cm3] kept 13/48 features after selection
+      psd_C_U                            length-scale=1.55
+      psd_size_at_d10_mm                 length-scale=3.27
+      casagrande_interaction             length-scale=3.75
+      psd_fraction_sand                  length-scale=5.45
+      log_diff_psd_size_at_d95_mm        length-scale=6.44
+      loss_on_ignition_pct               length-scale=8.5
+      psd_passing_at_0_063mm_pct         length-scale=9.13
+      psd_size_at_d30_mm                 length-scale=11.3
+      psd_C_U_is_low                     length-scale=15.5
+      skempton_index                     length-scale=16
+  [proctor_owc_pct] kept 18/48 features after selection
+      psd_C_U                            length-scale=1.57
+      atterberg_plastic_limit_pct        length-scale=4.21
+      psd_passing_at_0_063mm_pct         length-scale=5.35
+      psd_fraction_sand                  length-scale=7.41
+      loss_on_ignition_pct               length-scale=8.58
+      psd_C_U_is_low                     length-scale=8.6
+      log_diff_psd_size_at_d98_mm        length-scale=10.4
+      log_diff_psd_size_at_d40_mm        length-scale=11.2
+      psd_passing_at_2mm_pct             length-scale=11.5
+      psd_fraction_gravel                length-scale=11.5
+Wrote per-sample uncertainty -> gpr_uncertainty.csv
