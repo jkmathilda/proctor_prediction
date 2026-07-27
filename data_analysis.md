@@ -1,4 +1,4 @@
-# Data Analysis Findings — `data_analysis.ipynb`
+# Data Analysis
 
 **Dataset**: 201 training samples, 25 raw columns (`train.csv`). Targets: `proctor_mdd_g_cm3` (MDD, mean 1.97 g/cm³, range 1.61–2.21) and `proctor_owc_pct` (OWC, mean 10.1%, range 3.5–20.7%).
 
