@@ -1,39 +1,42 @@
 """
-proctor_gpr.py
-==============
-Gaussian Process Regression for the LeiGS 2026 Proctor Challenge.
+v14.py
+======
+Drop-NaN-features rewrite of the LeiGS 2026 Proctor Prediction pipeline, built
+to be otherwise identical to scripts/v10.py (load_helpers, setup_logger,
+fold-isolated preprocessing, GaussianProcessRegressor + HistGradientBoosting
+blend, StandardScaler, StratifiedShuffleSplit CV, a saveable .pt model,
+ARD feature-relevance reporting, main/parse_args) but with a different answer
+to missing data than v10.py's MICE imputer: **no imputation at all** -- the
+five raw columns that contain any NaN (``hyd_cond_kf_m_s``,
+``hyd_cond_hyd_gradient``, ``atterberg_liquid_limit_pct``,
+``atterberg_plastic_limit_pct``, ``loss_on_ignition_pct``) are dropped
+outright, and the model is fit only on the columns that are complete for
+every row.
 
-Why a GP instead of the neural net? The dataset is small (~200 training rows).
-Neural networks are data-hungry and over-fit at this size, whereas a Gaussian
-Process is a *data-efficient*, non-parametric Bayesian model that tends to
-generalize better on small tabular data — and it returns a calibrated
-**uncertainty** (standard deviation) for every prediction, not just a point
-estimate. (Gradient-boosted trees are the other strong small-data choice and are
-already covered by proctor_pipeline.py.)
+Why drop instead of impute: MICE fills in a plausible value for e.g. a
+plasticity limit that was never measured for that sample -- useful, but it
+is a guess, and v10's own GP+GBT blend never beat v5's fixed blend. This
+version asks the simpler question of what the model can do with only
+measured data. Because sklearn's GaussianProcessRegressor requires a dense,
+complete input matrix (no NaN support, unlike v14's earlier XGBoost variant),
+dropping the incomplete columns keeps the exact same GP+GBT architecture
+as v10.py instead of requiring a different model family.
 
-By default it uses an ARD kernel (a separate length-scale per feature), so the GP
-learns each feature's relevance instead of treating them all equally — soft,
-built-in feature selection that suits many-feature/few-row tabular data. The
-learned relevances are reported per target. Use --isotropic for a single shared
-length-scale, and --kernel to switch the smoothness kernel.
+`helper_functions.apply_fold_feature_engineering` derives several columns
+(``log10_kf``, ``atterberg_plasticity_index``, ``skempton_index``,
+``hazen_interaction``, ``casagrande_interaction``) from those same five raw
+columns and explicitly assumes they've already been MICE-imputed -- so it is
+not called here either; every derived feature it would add depends on a
+column this script drops. All other engineered features from
+``add_gradation_parameters``/``prepare_features`` (PSD fractions, log-ratio
+PSD shape terms, C_U/C_C) have no missing values in this dataset and are kept
+as-is.
 
-The physics is kept as a post-hoc guardrail: predicted MDD is clipped to the
-Zero-Air-Voids (saturation) line, so outputs stay physically admissible.
-
-It predicts the numerical targets:
-    - proctor_owc_pct   (optimum water content, %)
-    - proctor_mdd_g_cm3 (maximum dry density, g/cm^3)
-
-reusing the organizers' helpers.py for feature engineering + MICE imputation
-(fold-isolated, no leakage), standardizing features, evaluating with the
-competition metric NMAE (+ MAE / RMSE / R^2), and writing a submission plus the
-per-sample uncertainty.
+Reuses the organizers' helper_functions.py for feature engineering, the
+NMAE metric, and the saturation-line clip -- same as v10.py.
 
 Run:
-    python proctor_gpr.py --data_dir <csvs> --helpers_dir <helpers.py folder>
-
-Needs train.csv, test.csv, helpers.py. Dependencies: scikit-learn, pandas, numpy,
-matplotlib, and torch (used only to save/load the model as a .pt file).
+    python scripts/v14.py --data_dir ./data --out ./submissions/submission_v14.csv
 """
 
 import argparse
@@ -57,6 +60,19 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
 TARGETS = ["proctor_mdd_g_cm3", "proctor_owc_pct"]   # col 0 = MDD, col 1 = OWC
+
+# Raw columns that contain NaN anywhere in train/test -- dropped entirely
+# instead of imputed. Every column apply_fold_feature_engineering would
+# derive (log10_kf, atterberg_plasticity_index, skempton_index,
+# hazen_interaction, casagrande_interaction) depends on one of these, so
+# none of those derived features are computable here either.
+NAN_RAW_COLS = [
+    "hyd_cond_kf_m_s",
+    "hyd_cond_hyd_gradient",
+    "atterberg_liquid_limit_pct",
+    "atterberg_plastic_limit_pct",
+    "loss_on_ignition_pct",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -95,7 +111,7 @@ def load_helpers(helpers_dir):
 
 
 def setup_logger(path):
-    logger = logging.getLogger("gpr")
+    logger = logging.getLogger("v14")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     fh = logging.FileHandler(path, mode="w")
@@ -114,22 +130,15 @@ def base_feature_engineering(df, H):
     return df
 
 
-def numeric_impute_columns(X, exclude):
-    return [c for c in X.columns
-            if c not in exclude and pd.api.types.is_numeric_dtype(X[c])]
+def drop_nan_columns(df):
+    """Drop the raw NaN-containing columns -- the only "imputation" strategy
+    this script uses is not needing one, by not using those columns at all."""
+    return df.drop(columns=[c for c in NAN_RAW_COLS if c in df.columns])
 
 
-def preprocess_fold(X_tr, X_va, cols_for_imputation, H, seed):
-    """Fold-isolated: missing indicators -> MICE -> feature engineering -> scale."""
-    for f in (X_tr, X_va):
-        f["atterberg_is_missing"] = f["atterberg_liquid_limit_pct"].isnull().astype(int)
-        f["kf_is_missing"] = f["hyd_cond_kf_m_s"].isnull().astype(int)
-        f["loi_is_missing"] = f["loss_on_ignition_pct"].isnull().astype(int)
-    imputer = H.get_default_mice_imputer(seed=seed)
-    X_tr[cols_for_imputation] = imputer.fit_transform(X_tr[cols_for_imputation])
-    X_va[cols_for_imputation] = imputer.transform(X_va[cols_for_imputation])
-    for f in (X_tr, X_va):
-        H.apply_fold_feature_engineering(f)
+def preprocess_fold(X_tr, X_va):
+    """Fold-isolated preprocessing: just the scaler, since there is no
+    imputer and no missing-indicator/derived-feature step to fit."""
     scaler = StandardScaler()
     return scaler.fit_transform(X_tr.values), scaler.transform(X_va.values)
 
@@ -272,28 +281,16 @@ def blend_and_clip(gp_pred, gbt_pred, weights, rho_s, H):
     return np.column_stack([mdd, owc])
 
 
-
-
 # --------------------------------------------------------------------------- #
 # Saveable model: fit on all data, persist, reload, predict
 # --------------------------------------------------------------------------- #
-def _add_indicators(df):
-    df["atterberg_is_missing"] = df["atterberg_liquid_limit_pct"].isnull().astype(int)
-    df["kf_is_missing"] = df["hyd_cond_kf_m_s"].isnull().astype(int)
-    df["loi_is_missing"] = df["loss_on_ignition_pct"].isnull().astype(int)
-
-
-def fit_full_model(X_base, y, cols_for_imputation, H, args, weights=None):
-    """Fit imputer, scaler, and per-target GP(+selection) and GBT on ALL data.
+def fit_full_model(X_base, y, H, args, weights=None):
+    """Fit scaler and per-target GP(+selection) and GBT on ALL data.
 
     `weights` are the per-target GP blend weights (from CV); default all-GP.
     Returns a self-contained artifacts dict that reproduces predictions.
     """
     X = X_base.copy()
-    _add_indicators(X)
-    imputer = H.get_default_mice_imputer(seed=args.seed)
-    X[cols_for_imputation] = imputer.fit_transform(X[cols_for_imputation])
-    H.apply_fold_feature_engineering(X)
     feature_cols = list(X.columns)
     scaler = StandardScaler()
     Xs = scaler.fit_transform(X.values)
@@ -301,27 +298,20 @@ def fit_full_model(X_base, y, cols_for_imputation, H, args, weights=None):
     if weights is None:
         weights = np.ones(len(TARGETS))
     return {
-        "imputer": imputer,
         "scaler": scaler,
         "gps": gps,
         "gbts": gbts,                                 # None per target if ensemble off
         "weights": np.asarray(weights),               # per-target GP blend weight
         "selected": sels,                             # per-target column indices
         "feature_cols": feature_cols,
-        "cols_for_imputation": cols_for_imputation,
         "targets": TARGETS,
         "kernels": [str(gp.kernel_) for gp in gps],   # learned kernel hyperparams
     }
 
 
 def _transform_with(artifacts, df_fe, H):
-    """Apply the saved preprocessing to a (base-feature-engineered) frame."""
-    X = df_fe.copy()
-    _add_indicators(X)
-    X[artifacts["cols_for_imputation"]] = artifacts["imputer"].transform(
-        X[artifacts["cols_for_imputation"]])
-    H.apply_fold_feature_engineering(X)
-    X = X.reindex(columns=artifacts["feature_cols"])   # exact train-time order
+    """Apply the saved preprocessing to a (base-feature-engineered, NaN-column-dropped) frame."""
+    X = df_fe.reindex(columns=artifacts["feature_cols"])   # exact train-time order
     return artifacts["scaler"].transform(X.values)
 
 
@@ -355,8 +345,9 @@ def load_model(path):
 
 
 def predict_from_raw(df_raw, artifacts, H, clip=True):
-    """Convenience: run base feature engineering, then predict from a raw frame."""
-    return gp_predict(artifacts, base_feature_engineering(df_raw.copy(), H), H, clip)
+    """Convenience: run base feature engineering + NaN-column drop, then predict."""
+    df_fe = drop_nan_columns(base_feature_engineering(df_raw.copy(), H))
+    return gp_predict(artifacts, df_fe, H, clip)
 
 
 def plot_pred_vs_actual(y_true, y_pred, y_std, target, mae, r2, path):
@@ -368,7 +359,7 @@ def plot_pred_vs_actual(y_true, y_pred, y_std, target, mae, r2, path):
     ax.plot([lo, hi], [lo, hi], "k--", lw=1.2, label="ideal")
     ax.set_xlabel(f"actual {target}", fontweight="bold")
     ax.set_ylabel(f"predicted {target}", fontweight="bold")
-    ax.set_title(f"{target}  (GP ±1σ)\nMAE={mae:.3f}  R²={r2:.3f}", fontweight="bold")
+    ax.set_title(f"{target}  (GP ±1σ, no imputation)\nMAE={mae:.3f}  R²={r2:.3f}", fontweight="bold")
     ax.legend()
     fig.tight_layout()
     fig.savefig(path)
@@ -381,9 +372,9 @@ def plot_pred_vs_actual(y_true, y_pred, y_std, target, mae, r2, path):
 def main(args):
     os.makedirs(args.report_dir, exist_ok=True)
     log_path = args.log if os.path.isabs(args.log) else os.path.join(args.report_dir, args.log)
-    os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
     logger = setup_logger(log_path)
-    logger.info("Gaussian Process regression baseline (small-data model)")
+    logger.info("v14 -- GP + HistGBR blend (v10 architecture), NO imputation: "
+                "NaN-containing raw columns dropped instead of filled")
     logger.info("seed=%d  folds=%d  kernel restarts=%d", args.seed, args.folds, args.restarts)
 
     H = load_helpers(args.helpers_dir)
@@ -396,12 +387,16 @@ def main(args):
     train = base_feature_engineering(train, H)
     test = base_feature_engineering(test, H)
 
+    dropped = [c for c in NAN_RAW_COLS if c in train.columns]
+    train = drop_nan_columns(train)
+    test = drop_nan_columns(test)
+    logger.info("dropped %d NaN-containing raw columns: %s", len(dropped), dropped)
+
     y = train[TARGETS].values.astype(float)
-    X_base = train.drop(columns=TARGETS)
-    exclude = ["id", "atterberg_is_missing", "kf_is_missing", "loi_is_missing"]
-    cols_for_imputation = numeric_impute_columns(X_base, exclude)
-    logger.info("features=%d  MICE-imputed columns=%d",
-                X_base.shape[1], len(cols_for_imputation))
+    X_base = train.drop(columns=TARGETS + ["id"], errors="ignore")
+    n_missing_cols = int(X_base.isnull().any().sum())
+    logger.info("features=%d  columns with NaNs remaining=%d (should be 0)",
+                X_base.shape[1], n_missing_cols)
 
     # ---- stratified-shuffle cross-validation ----
     # StratifiedShuffleSplit needs class labels, so we stratify on quantile bins
@@ -423,8 +418,7 @@ def main(args):
     cnt = np.zeros(len(y))
     fold_records = []                 # (va, gp_pred, gbt_pred) per split
     for k, (tr, va) in enumerate(sss.split(X_base, strata)):
-        Xtr, Xva = preprocess_fold(X_base.iloc[tr].copy(), X_base.iloc[va].copy(),
-                                   cols_for_imputation, H, args.seed)
+        Xtr, Xva = preprocess_fold(X_base.iloc[tr].copy(), X_base.iloc[va].copy())
         gps, sels, gbts = fit_bases(Xtr, y[tr], args)
         gpm, gps_std, gbm = predict_bases(Xva, gps, sels, gbts)
         gp_sum[va] += gpm
@@ -475,15 +469,14 @@ def main(args):
     for i, name in enumerate(TARGETS):
         logger.info("%-22s %10.4f %10.4f %8.3f %12.3f", name, mae[i], rmse[i], r2[i],
                     float(np.nanmean(oof_std[:, i])))
-        img = os.path.join(args.report_dir, f"gpr_pred_vs_actual_{name}.png")
+        img = os.path.join(args.report_dir, f"v14_pred_vs_actual_{name}.png")
         plot_pred_vs_actual(y_seen[:, i], oof_clip[:, i], oof_std[:, i], name,
                             mae[i], r2[i], img)
         logger.info("saved -> %s", img)
 
     # ---- fit final model on all training data, save it, predict test ----
-    artifacts = fit_full_model(X_base, y, cols_for_imputation, H, args, weights=weights)
+    artifacts = fit_full_model(X_base, y, H, args, weights=weights)
     if args.model_out:
-        os.makedirs(os.path.dirname(args.model_out) or ".", exist_ok=True)
         torch.save(artifacts, args.model_out)
         logger.info("\nSaved GP model -> %s", args.model_out)
         for name, kern in zip(TARGETS, artifacts["kernels"]):
@@ -505,7 +498,7 @@ def main(args):
             for i in order[:args.relevance_top]:
                 logger.info("      %-34s length-scale=%.3g", sel_names[i], float(ls[i]))
 
-    # predict the test set from the saved artifacts (test is already base-FE'd)
+    # predict the test set from the saved artifacts (test is already base-FE'd + NaN-dropped)
     preds, stds = gp_predict(artifacts, test, H, clip=True)
     mdd, owc = preds[:, 0], preds[:, 1]
 
@@ -514,11 +507,9 @@ def main(args):
         "proctor_owc_pct": np.round(owc, 3),
         "proctor_mdd_g_cm3": np.round(mdd, 4),
     })
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     out.to_csv(args.out, index=False)
 
     if args.uncertainty_out:
-        os.makedirs(os.path.dirname(args.uncertainty_out) or ".", exist_ok=True)
         unc = pd.DataFrame({
             "id": test["id"].values,
             "owc_std": np.round(stds[:, 1], 3),
@@ -537,13 +528,13 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
     p.add_argument("--helpers_dir", default=str(repo_root))
-    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v10_gpr+mice_nofold.csv"))
-    p.add_argument("--model_out", default=str(repo_root / "models" / "v10_gpr+mice_nofold.pt"),
+    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v14.csv"))
+    p.add_argument("--model_out", default="v14_dropnan.pt",
                    help="path to save the fitted GP model as a .pt file (empty to skip)")
-    p.add_argument("--uncertainty_out", default=str(repo_root / "submissions" / "gpr_uncertainty.csv"),
+    p.add_argument("--uncertainty_out", default="v14_uncertainty.csv",
                    help="CSV of per-sample predictive std (empty string to skip)")
-    p.add_argument("--report_dir", default=str(repo_root / "figures"))
-    p.add_argument("--log", default=str(repo_root / "logs" / "proctor_gpr.log"))
+    p.add_argument("--report_dir", default=str(repo_root / "scripts"))
+    p.add_argument("--log", default="v14_run.log")
     p.add_argument("--folds", type=int, default=1,
                    help="number of StratifiedShuffleSplit splits")
     p.add_argument("--val_frac", type=float, default=0.2,
