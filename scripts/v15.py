@@ -1,6 +1,12 @@
 """
-proctor_gpr.py
-==============
+v15.py
+======
+Identical to scripts/v10.py (Gaussian Process Regression for the LeiGS 2026
+Proctor Challenge) except for one change: ``hyd_cond_hyd_gradient`` is dropped
+right after it's read in and is therefore neither MICE-imputed nor used as a
+predictor. Every other raw column is still imputed and engineered exactly as
+in v10.py.
+
 Gaussian Process Regression for the LeiGS 2026 Proctor Challenge.
 
 Why a GP instead of the neural net? The dataset is small (~200 training rows).
@@ -398,9 +404,13 @@ def main(args):
 
     y = train[TARGETS].values.astype(float)
     X_base = train.drop(columns=TARGETS)
+    # v15 vs v10: drop hyd_cond_hyd_gradient outright -- not imputed, not used
+    # as a predictor. Everything else (MICE imputation of the other columns,
+    # apply_fold_feature_engineering, model architecture) is unchanged.
+    X_base = X_base.drop(columns=["hyd_cond_hyd_gradient"], errors="ignore")
     exclude = ["id", "atterberg_is_missing", "kf_is_missing", "loi_is_missing"]
     cols_for_imputation = numeric_impute_columns(X_base, exclude)
-    logger.info("features=%d  MICE-imputed columns=%d",
+    logger.info("features=%d  MICE-imputed columns=%d  (hyd_cond_hyd_gradient dropped)",
                 X_base.shape[1], len(cols_for_imputation))
 
     # ---- stratified-shuffle cross-validation ----
@@ -537,13 +547,13 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
     p.add_argument("--helpers_dir", default=str(repo_root))
-    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v10_gpr+mice_nofold.csv"))
-    p.add_argument("--model_out", default=str(repo_root / "models" / "v10_gpr+mice_nofold.pt"),
+    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v15_gpr+mice_nohydgrad.csv"))
+    p.add_argument("--model_out", default=str(repo_root / "models" / "v15_gpr+mice_nohydgrad.pt"),
                    help="path to save the fitted GP model as a .pt file (empty to skip)")
-    p.add_argument("--uncertainty_out", default=str(repo_root / "submissions" / "gpr_uncertainty.csv"),
+    p.add_argument("--uncertainty_out", default=str(repo_root / "submissions" / "v15_uncertainty.csv"),
                    help="CSV of per-sample predictive std (empty string to skip)")
     p.add_argument("--report_dir", default=str(repo_root / "figures"))
-    p.add_argument("--log", default=str(repo_root / "logs" / "proctor_gpr.log"))
+    p.add_argument("--log", default=str(repo_root / "logs" / "v15_run.log"))
     p.add_argument("--folds", type=int, default=1,
                    help="number of StratifiedShuffleSplit splits")
     p.add_argument("--val_frac", type=float, default=0.2,
