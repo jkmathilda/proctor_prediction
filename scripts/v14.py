@@ -528,7 +528,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
     p.add_argument("--helpers_dir", default=str(repo_root))
-    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v14.csv"))
+    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v14_ensemble.csv"))
     p.add_argument("--model_out", default="v14_dropnan.pt",
                    help="path to save the fitted GP model as a .pt file (empty to skip)")
     p.add_argument("--uncertainty_out", default="v14_uncertainty.csv",
@@ -561,7 +561,7 @@ def parse_args():
                    help="always keep at least this many (most relevant) features")
     p.add_argument("--linear", action="store_true",
                    help="add a linear (DotProduct) kernel term for global trends")
-    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=False,
+    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=True,
                    help="blend the GP with gradient-boosted trees (recommended)")
     p.add_argument("--no_ensemble", dest="ensemble", action="store_false",
                    help="use the GP alone (no blend)")

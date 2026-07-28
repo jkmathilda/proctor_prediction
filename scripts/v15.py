@@ -547,13 +547,13 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
     p.add_argument("--helpers_dir", default=str(repo_root))
-    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v15_gpr+mice_nohydgrad.csv"))
-    p.add_argument("--model_out", default=str(repo_root / "models" / "v15_gpr+mice_nohydgrad.pt"),
+    p.add_argument("--out", default=str(repo_root / "submissions" / "submission_v15_ensemble+mice_nohydgrad.csv"))
+    p.add_argument("--model_out", default=str(repo_root / "models" / "v15_ensemble+mice_nohydgrad.pt"),
                    help="path to save the fitted GP model as a .pt file (empty to skip)")
-    p.add_argument("--uncertainty_out", default=str(repo_root / "submissions" / "v15_uncertainty.csv"),
+    p.add_argument("--uncertainty_out", default=str(repo_root / "docs" / "v15_logs" / "v15_uncertainty_ensemble.csv"),
                    help="CSV of per-sample predictive std (empty string to skip)")
     p.add_argument("--report_dir", default=str(repo_root / "figures"))
-    p.add_argument("--log", default=str(repo_root / "logs" / "v15_run.log"))
+    p.add_argument("--log", default=str(repo_root / "docs" / "v15_logs"/ "v15_run_ensemble.log"))
     p.add_argument("--folds", type=int, default=1,
                    help="number of StratifiedShuffleSplit splits")
     p.add_argument("--val_frac", type=float, default=0.2,
@@ -580,7 +580,7 @@ def parse_args():
                    help="always keep at least this many (most relevant) features")
     p.add_argument("--linear", action="store_true",
                    help="add a linear (DotProduct) kernel term for global trends")
-    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=False,
+    p.add_argument("--ensemble", dest="ensemble", action="store_true", default=True,
                    help="blend the GP with gradient-boosted trees (recommended)")
     p.add_argument("--no_ensemble", dest="ensemble", action="store_false",
                    help="use the GP alone (no blend)")
