@@ -10,6 +10,7 @@
 
 | Version | Approach | CV NMAE | Submission |
 |---------|----------|---------|------------|
+| [v14](#v14--self-contained-three-stage-pipeline-ridge--xgb-residual--finecoarse-correction) | Ridge (global linear) + XGBoost-on-residuals + fine/coarse-grained correction, stratified CV | 0.2585 (Stage 1+2; Stage 3 doesn't help) | submission_20260722_v14.csv (kept for reference — worse than v5, do not submit) |
 | [v7](#v7--knn-diversity-model--uscs-particle-class-features) | KNN (standalone + blend) on v6's helper-based pipeline, soil-composition-stratified CV | 0.2493 (0.3502 standalone) | submission_20260706_v7.csv (kept for reference — worse than v5, do not submit) |
 | [v5](#v5--sindy-feature-discovery--shap-refinement--gbmpinn-blend) | SINDy features + SHAP refinement + GBM/PINN blend | **0.2410** | submission_20260702_1200_v5.csv |
 | [v4](#v4--standalone-pinn-script) | PINN (single-head script, hold-out only) | N/A (no full CV) | submission20250630_1544_v4.csv |
@@ -196,3 +197,67 @@
 | PINN (v6 base pipeline) | 0.3160 |
 | Best standalone KNN (n=3, distance, manhattan) | 0.3502 |
 | Worst KNN config (n=15, uniform, euclidean) | 0.5804 |
+
+---
+
+## v14 — Self-Contained Three-Stage Pipeline (Ridge → XGB Residual → Fine/Coarse Correction)
+**File**: `scripts/v14.py` | **Log**: `docs/v14_logs/v14_run.log`
+**Plan**: `docs/01-plan/features/v14.plan.md` | **Design**: `docs/02-design/features/v14.design.md`
+
+### Pipeline
+1. **Base feature engineering** (deterministic, pre-CV) — `helper_functions.add_gradation_parameters` +
+   `prepare_features` (DIN grain-size fractions, log-ratio PSD terms) + a `fine_grained` flag
+   (`psd_fraction_clay + psd_fraction_silt > 12`, reused verbatim from `scripts/v7.py`).
+2. **Fold-isolated preprocessing** — missing-indicator flags → `helper_functions.get_default_mice_imputer`
+   (fit on train fold only) → `apply_fold_feature_engineering` (log10_kf, PI, Skempton/Hazen/Casagrande
+   interaction terms) → a `ColumnTransformer` built from `get_scaler_assignments`/`get_column_preprocessor`
+   (PowerTransformer/RobustScaler/StandardScaler groups, decided once pre-CV on a full-data imputation per
+   `scripts/v7.py:214-222`'s precedent, but the scaler itself refit fold-isolated).
+3. **Stage 1 (global, linear)** — `RidgeCV` (`alphas=np.logspace(-2,3,50)`, inner `cv=5`), one model per
+   target, on the full scaled feature set (39 engineered features).
+4. **Stage 2 (global, nonlinear)** — `XGBRegressor` fit on Stage 1's residuals, more heavily regularized
+   than v1's tuned direct-target model (`max_depth=3, learning_rate=0.02, min_child_weight=8,
+   reg_lambda=5.0, subsample/colsample_bytree=0.7`, early-stopped against the val fold).
+5. **Stage 3 (fine/coarse correction)** — per-`fine_grained`-group correction on the Stage 1+2 residual.
+   Two forms evaluated: `bias` (per-group mean-residual shift, the default) and `scale` (`r ≈
+   a·stage12_pred + b` via per-group OLS, gated on both groups clearing a 30-row floor — train's actual
+   split is fine=89/coarse=112, so both clear it).
+6. **CV folds** — `StratifiedKFold` on `soil_composition_strata` (dominant Sand/Gravel/Fine DIN bucket,
+   reused verbatim from `scripts/v7.py`), not a plain `KFold` — required per the plan's finding that
+   `data_analysis.ipynb`'s plain-KFold OWC linear-regression fold hit R² = −1.45.
+7. **Physical constraint / metric** — `helper_functions.calc_satline` / `calculate_nmae` reused directly,
+   no reimplementation.
+
+### Key Points
+- **This is a formalization of `scripts/model1.py`**, an unimplemented docstring-only stub already in the
+  repo. The plan phase found the stub's own justification numbers didn't hold up: it cited
+  `data_analysis.ipynb` as showing OWC's plain-OLS validation R² at ~0.73, but the actual notebook cells
+  show 0.30–0.39 (one fold as bad as −1.45 under a plain `KFold`) — traced to the same fold-composition
+  instability `scripts/v7.py` had already diagnosed and fixed for a different comparison. `v14.py` adopts
+  that fix (stratified folds) as a requirement, not an option.
+- **Stage 1+2 result**: NMAE **0.2585** (Stage 1 alone: 0.2839). The nonlinear residual stage recovers a
+  real, substantial improvement over the linear stage alone, confirming the plan's XGBoost-vs-Ridge
+  evidence (cell 49: XGBoost val R² 0.835/0.797 vs. Ridge 0.735/0.388) that a global nonlinear stage is
+  essential — especially for OWC, the harder target across every version of this project so far.
+- **Stage 3 does not help, in either form** — `bias`: NMAE 0.2586 (0.0001 *worse* than Stage 1+2 alone,
+  within noise); `scale`: NMAE 0.2604 (worse). Per the design's own acceptance criteria, this is documented
+  as a negative result rather than shipped: the fine/coarse split, even at a healthy 89/112 sample split,
+  doesn't carry residual signal beyond what Stage 1+2 already captures. Consistent with v2's and v7's
+  precedent of honestly reporting when an architecturally-motivated addition doesn't pay off.
+- **Does not beat v5.** Best v14 result (Stage 1+2, 0.2585) trails v5's fixed blend (0.2410–0.2420) by a
+  wide margin — larger than v7's KNN blend (0.2493) or the recomputed GPR line (~0.2484), making v14 the
+  weakest of the documented post-v5 attempts so far. The three-stage decomposition (linear trend + residual
+  GBM + group correction) is architecturally clean and fully ablated, but doesn't out-perform v5's
+  feature-engineering-driven approach (SINDy discovery + SHAP-guided interaction terms + GBM/PINN blend) on
+  this dataset.
+- `scripts/model1.py` is superseded by this script and has been removed from the repo, per the design
+  document's decision (every other script in `scripts/` follows the `vN.py` convention).
+
+### Results (5-fold stratified CV, OOF NMAE against fixed global IQR)
+| Stage | OOF NMAE |
+|-------|---------|
+| v5 fixed blend (existing best, for reference) | 0.2410–0.2420 |
+| Stage 1 + 2 (Ridge + XGB residual) | **0.2585** |
+| Stage 1 + 2 + 3, `bias` (shipped default) | 0.2586 |
+| Stage 1 + 2 + 3, `scale` escalation | 0.2604 |
+| Stage 1 alone (Ridge, no residual stage) | 0.2839 |
