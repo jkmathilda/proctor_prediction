@@ -3,16 +3,14 @@ mdd_fine_correction.py
 =======================
 The residual model itself goes beyond what the notebook tried. Its
 evaluate_specialist() only ever fit XGBoost; MDDFineGrainedResidualCorrector
-instead compares three candidates on the same out-of-fold split -- XGBoost
-alone (Optuna-tuned by default, see optuna_trials), a Gaussian Process alone
-(general_model_impute.make_default_gpr_model, which tunes its own kernel
-hyperparameters by marginal-likelihood optimization rather than Optuna), and
-a weighted ensemble of the two (weight fit the same way
-general_model_impute.BlendedResidualModel does) -- and keeps whichever has
-the lowest OOF MSE against the general model's remaining residual. See
-MDDFineGrainedResidualCorrector's docstring for the full comparison
-procedure.
-
+always uses a weighted ensemble of XGBoost (Optuna-tuned by default, see
+optuna_trials) and a Gaussian Process (general_model_impute.make_default_gpr_model,
+which tunes its own kernel hyperparameters by marginal-likelihood optimization
+rather than Optuna), blend weight fit the same way
+general_model_impute.BlendedResidualModel does. See
+MDDFineGrainedResidualCorrector's docstring for the full procedure, including
+why an earlier XGBoost-alone/GPR-alone/ensemble comparison was simplified
+away.
 
 Wraps an already-fitted "general model" -- e.g. scripts/model1.py's
 WeightedBlendRegressor (general_model.py, NO_MISSING_FEATURES) or
@@ -23,10 +21,36 @@ importing either concretely -- whichever general model the calling script
 chooses to run is the one whose residuals get corrected here.
 
 Only MDD is corrected (the notebook never fit an analogous specialist
-correction for OWC) and only fine-grained rows are corrected -- Atterberg
+correction for OWC -- see owc_fine_correction.py for this repo's own
+extension to OWC) and only fine-grained rows are corrected -- Atterberg
 limits/PI/LOI/kf (the specialist features) are only physically measured for
 fine-grained soils in the first place, so coarse-grained rows pass through
 the general model's raw prediction unchanged.
+
+By default (stratified_split=False) this class draws its own plain
+KFold(n_splits) internally, giving every fine-grained row an out-of-fold
+residual prediction -- full coverage, like
+general_model_impute.WeightedBlendRegressor's default.
+
+Passing stratified_split=True switches to quantile-stratified K-fold splits
+instead of plain KFold (general_model_impute.make_stratified_kfold_splits):
+the general_model must itself have been fit with externally-provided splits
+(WeightedBlendRegressor(splits=...)) so its get_oof_results() exposes a
+`validated` column; this corrector then fits/evaluates using only the
+fine-grained rows the general model actually validated (usable_mask -- with
+StratifiedKFold at the general-model level this is effectively all of
+fine_mask, since StratifiedKFold covers every row), and draws its OWN
+stratified-K-fold split within that subset. An earlier version of this used
+scripts/v15.py's literal scheme -- a single 80/20 StratifiedShuffleSplit
+holdout -- reused at every pipeline stage; on Kaggle that beat plain KFold
+(stratifying by target quantile is a real win on this small, skewed
+dataset), but the single small holdout starved this correction stage badly:
+beta got fit on just 4 validated fine-grained rows, landing at 1.39 of its
+1.5 cap and needing the saturation-line clip on 3/87 test predictions the
+old KFold scheme never triggered -- classic small-sample overfitting.
+StratifiedKFold keeps the stratification (still spans the full target range
+per fold) while restoring full coverage, same statistical footing as the
+original KFold scheme.
 """
 
 from __future__ import annotations
@@ -48,7 +72,9 @@ from xgboost import XGBRegressor
 from src.general_model_impute import (
     add_imputed_features,
     make_default_gpr_model,
+    make_stratified_kfold_splits,
     tune_xgb_with_optuna,
+    _oof_predict_from_splits,
 )
 
 
@@ -195,7 +221,10 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         `.get_oof_results(y, index)` returning a DataFrame with
         `blend_oof_prediction`/`remaining_residual` columns -- e.g.
         general_model.WeightedBlendRegressor or
-        general_model_impute.WeightedBlendRegressor. Never refit here.
+        general_model_impute.WeightedBlendRegressor. Never refit here. If
+        stratified_split=True, get_oof_results() must also expose a
+        `validated` column (i.e. general_model itself must have been fit
+        with splits=... -- see general_model_impute.WeightedBlendRegressor).
 
     xgb_model:
         Override for the XGBoost candidate. If None (default), see
@@ -214,10 +243,45 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
 
     n_splits, random_state:
         CV folds / seed used to build out-of-fold residual predictions for
-        Optuna tuning, candidate comparison, and beta-fitting.
+        Optuna tuning and beta-fitting when stratified_split=False (KFold,
+        full coverage -- the default). random_state is also used for
+        stratified_split=True's own splitting.
 
     beta_bounds:
         Lower/upper limits for the learned correction strength.
+
+    stratified_split:
+        False (default): draw a fresh plain KFold(n_splits) internally,
+        exactly as before this parameter existed -- every fine-grained row
+        gets an out-of-fold residual prediction.
+
+        True: quantile-stratified K-fold instead of plain KFold. Requires
+        general_model to have been fit with its own externally-provided
+        splits (so get_oof_results() has a `validated` column). This
+        corrector then: (1) restricts to `usable_mask = fine_mask &
+        general_model_oof["validated"]` -- only fine-grained rows the
+        general model itself validated have a legitimate (non-leaked) OOF
+        prediction to use as a specialist feature (with the general model
+        also on StratifiedKFold, this is effectively all of fine_mask, since
+        StratifiedKFold covers every row -- unlike a single-holdout scheme,
+        which would starve this down to a handful of rows); (2) draws its
+        OWN stratified-K-fold split (make_stratified_kfold_splits, using
+        folds/val_strata below) on that subset, so residual_oof_r2_/
+        corrected_oof_r2_/etc. are honest out-of-fold metrics over
+        (typically) the full fine-grained set, not a tiny holdout; (3)
+        refits the final xgb_residual_model_/gpr_residual_model_ on ALL of
+        usable_mask, same "validate small, deploy on everything" pattern
+        used throughout this codebase.
+
+        See module docstring for why this replaced an earlier single-holdout
+        (StratifiedShuffleSplit) version of stratified_split -- it beat plain
+        KFold on Kaggle but its tiny validated sample (4 rows) caused visible
+        overfitting in this correction stage specifically.
+
+    val_strata, folds:
+        Only used when stratified_split=True -- passed straight to
+        make_stratified_kfold_splits (val_strata, n_splits) for this
+        corrector's own internal split.
     """
 
     def __init__(
@@ -229,6 +293,9 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         n_splits: int = 5,
         random_state: int = 42,
         beta_bounds: tuple[float, float] = (0.0, 1.5),
+        stratified_split: bool = False,
+        val_strata: int = 5,
+        folds: int = 5,
     ) -> None:
         self.general_model = general_model
         self.xgb_model = xgb_model
@@ -237,6 +304,9 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         self.n_splits = n_splits
         self.random_state = random_state
         self.beta_bounds = beta_bounds
+        self.stratified_split = stratified_split
+        self.val_strata = val_strata
+        self.folds = folds
 
     def _get_gpr(self, n_features: int) -> Any:
         if self.gpr_model is None:
@@ -280,7 +350,9 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
             Boolean array/Series, row-aligned with X_general, True for
             fine-grained rows. Only these rows are used to fit the
             correction -- coarse-grained rows are untouched at predict
-            time.
+            time. (With stratified_split=True, only the subset of these
+            rows the general model itself validated is actually usable --
+            see usable_mask below.)
         """
         if not getattr(self.general_model, "is_fitted_", False):
             raise ValueError(
@@ -300,27 +372,81 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
             raise ValueError("fine_mask selects zero rows -- nothing to fit.")
 
         oof = self.general_model.get_oof_results(y=y_array, index=X_general.index)
-        oof_fine = oof.loc[fine_mask]
 
-        specialist_fine = X_specialist.loc[fine_mask].copy()
-        specialist_fine.insert(
-            0, "blend_oof_prediction", oof_fine["blend_oof_prediction"].to_numpy()
-        )
+        if self.stratified_split:
+            # -----------------------------------------------------
+            # Only fine-grained rows the general model itself validated
+            # have a legitimate (non-leaked) OOF prediction to build a
+            # specialist feature from. With the general model also on
+            # StratifiedKFold, this is effectively all of fine_mask.
+            # -----------------------------------------------------
+            if "validated" not in oof.columns:
+                raise ValueError(
+                    "stratified_split=True requires general_model to have "
+                    "been fit with its own externally-provided splits (so "
+                    "get_oof_results() has a 'validated' column) -- e.g. "
+                    "WeightedBlendRegressor(splits=make_stratified_kfold_splits(...))."
+                )
 
-        X_fit = specialist_fine[SPECIALIST_FEATURES_C]
-        y_fit = oof_fine["remaining_residual"].to_numpy()
+            usable_mask = fine_mask & oof["validated"].to_numpy()
 
-        if X_fit.isna().any().any():
-            missing_cols = X_fit.columns[X_fit.isna().any()].tolist()
-            raise ValueError(
-                f"Specialist features contain missing values in columns: {missing_cols}"
+            if usable_mask.sum() < 10:
+                raise ValueError(
+                    f"Only {int(usable_mask.sum())} fine-grained rows were "
+                    "validated by the general model's own split -- too few "
+                    "to fit a correction on. Increase folds/val_strata at "
+                    "the general-model level, or use stratified_split=False "
+                    "(plain KFold, full coverage)."
+                )
+
+            specialist_usable = X_specialist.loc[usable_mask].copy()
+            specialist_usable.insert(
+                0, "blend_oof_prediction", oof.loc[usable_mask, "blend_oof_prediction"].to_numpy()
             )
+            X_fit = specialist_usable[SPECIALIST_FEATURES_C]
+            y_fit = oof.loc[usable_mask, "remaining_residual"].to_numpy()
 
-        cv = self._make_cv()
+            if X_fit.isna().any().any():
+                missing_cols = X_fit.columns[X_fit.isna().any()].tolist()
+                raise ValueError(
+                    f"Specialist features contain missing values in columns: {missing_cols}"
+                )
+
+            splits = make_stratified_kfold_splits(
+                y_fit, n_splits=self.folds,
+                val_strata=self.val_strata, random_state=self.random_state,
+            )
+            general_prediction_fine = oof.loc[usable_mask, "blend_oof_prediction"].to_numpy()
+            observed_fine = oof.loc[usable_mask, "observed"].to_numpy()
+            self.n_usable_ = int(usable_mask.sum())
+        else:
+            # -----------------------------------------------------
+            # Original behavior: KFold gives every fine-grained row an
+            # out-of-fold prediction, so all of fine_mask is usable.
+            # -----------------------------------------------------
+            oof_fine = oof.loc[fine_mask]
+
+            specialist_fine = X_specialist.loc[fine_mask].copy()
+            specialist_fine.insert(
+                0, "blend_oof_prediction", oof_fine["blend_oof_prediction"].to_numpy()
+            )
+            X_fit = specialist_fine[SPECIALIST_FEATURES_C]
+            y_fit = oof_fine["remaining_residual"].to_numpy()
+
+            if X_fit.isna().any().any():
+                missing_cols = X_fit.columns[X_fit.isna().any()].tolist()
+                raise ValueError(
+                    f"Specialist features contain missing values in columns: {missing_cols}"
+                )
+
+            splits = list(self._make_cv().split(X_fit))
+            general_prediction_fine = oof_fine["blend_oof_prediction"].to_numpy()
+            observed_fine = oof_fine["observed"].to_numpy()
+            self.n_usable_ = int(fine_mask.sum())
 
         # ---------------------------------------------------------
-        # Residual model candidates: XGBoost (optionally Optuna-tuned),
-        # GPR, and a weighted ensemble of both -- see class docstring.
+        # Residual model candidates: XGBoost (optionally Optuna-tuned)
+        # and GPR, always blended as an ensemble -- see class docstring.
         # ---------------------------------------------------------
         self.optuna_study_ = None
 
@@ -330,22 +456,43 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
             xgb_template, self.optuna_study_ = tune_xgb_with_optuna(
                 X_fit, y_fit, n_trials=self.optuna_trials,
                 n_splits=self.n_splits, random_state=self.random_state,
+                splits=splits if self.stratified_split else None,
             )
         else:
             xgb_template = make_default_specialist_xgb(self.random_state)
 
         gpr_template = self._get_gpr(n_features=X_fit.shape[1])
 
-        xgb_oof = cross_val_predict(clone(xgb_template), X_fit, y_fit, cv=cv)
-        gpr_oof = cross_val_predict(clone(gpr_template), X_fit, y_fit, cv=cv)
+        if self.stratified_split:
+            xgb_oof, validated_within_fit = _oof_predict_from_splits(
+                lambda: clone(xgb_template), X_fit, y_fit, splits,
+            )
+            gpr_oof, _ = _oof_predict_from_splits(
+                lambda: clone(gpr_template), X_fit, y_fit, splits,
+            )
+            if validated_within_fit.sum() < 2:
+                raise ValueError(
+                    f"Only {int(validated_within_fit.sum())} rows were held "
+                    "out by this corrector's own split -- too few to report "
+                    "metrics on. Check folds/val_strata."
+                )
+        else:
+            cv = self._make_cv()
+            xgb_oof = cross_val_predict(clone(xgb_template), X_fit, y_fit, cv=cv)
+            gpr_oof = cross_val_predict(clone(gpr_template), X_fit, y_fit, cv=cv)
+            validated_within_fit = np.ones(len(y_fit), dtype=bool)
+
+        xgb_oof_v = xgb_oof[validated_within_fit]
+        gpr_oof_v = gpr_oof[validated_within_fit]
+        y_fit_v = y_fit[validated_within_fit]
 
         def blend_objective(w: float) -> float:
-            blended = w * xgb_oof + (1.0 - w) * gpr_oof
-            return mean_squared_error(y_fit, blended)
+            blended = w * xgb_oof_v + (1.0 - w) * gpr_oof_v
+            return mean_squared_error(y_fit_v, blended)
 
         blend_opt = minimize_scalar(blend_objective, bounds=(0.0, 1.0), method="bounded")
         self.ensemble_weight_ = float(blend_opt.x)
-        ensemble_oof = self.ensemble_weight_ * xgb_oof + (1.0 - self.ensemble_weight_) * gpr_oof
+        ensemble_oof_v = self.ensemble_weight_ * xgb_oof_v + (1.0 - self.ensemble_weight_) * gpr_oof_v
 
         # Diagnostic-only: xgboost-alone/gpr-alone OOF metrics, kept for
         # get_training_summary() so a caller can sanity-check the ensemble is
@@ -353,59 +500,60 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         # residual model -- see class docstring for why that comparison was
         # dropped in favor of always using the ensemble.
         candidate_oof = {
-            "xgboost": xgb_oof,
-            "gpr": gpr_oof,
-            "ensemble": ensemble_oof,
+            "xgboost": xgb_oof_v,
+            "gpr": gpr_oof_v,
+            "ensemble": ensemble_oof_v,
         }
         self.candidate_oof_metrics_ = {
             name: {
-                "r2": r2_score(y_fit, oof_pred),
-                "rmse": mean_squared_error(y_fit, oof_pred) ** 0.5,
+                "r2": r2_score(y_fit_v, oof_pred),
+                "rmse": mean_squared_error(y_fit_v, oof_pred) ** 0.5,
             }
             for name, oof_pred in candidate_oof.items()
         }
         self.residual_model_type_ = "ensemble"
 
-        residual_oof = ensemble_oof
+        residual_oof_v = ensemble_oof_v
 
-        general_prediction_fine = oof_fine["blend_oof_prediction"].to_numpy()
-        observed_fine = oof_fine["observed"].to_numpy()
+        general_prediction_fine_v = general_prediction_fine[validated_within_fit]
+        observed_fine_v = observed_fine[validated_within_fit]
 
         def objective(beta: float) -> float:
-            corrected = general_prediction_fine + beta * residual_oof
-            return mean_squared_error(observed_fine, corrected)
+            corrected = general_prediction_fine_v + beta * residual_oof_v
+            return mean_squared_error(observed_fine_v, corrected)
 
         opt = minimize_scalar(objective, bounds=self.beta_bounds, method="bounded")
         self.beta_ = float(opt.x)
 
-        # Refit both residual models on all fine-grained rows for later
-        # predict() calls (always the ensemble -- see class docstring).
+        # Refit both residual models on ALL usable rows (not just this
+        # split's held-out slice) for later predict() calls -- same
+        # "validate small, deploy on everything" pattern used throughout
+        # this codebase (e.g. WeightedBlendRegressor refits its 3 base
+        # models on all rows after weight-fitting on a validated subset).
         self.xgb_residual_model_ = clone(xgb_template)
         self.xgb_residual_model_.fit(X_fit, y_fit)
         self.gpr_residual_model_ = clone(gpr_template)
         self.gpr_residual_model_.fit(X_fit, y_fit)
 
-        corrected_oof = general_prediction_fine + self.beta_ * residual_oof
+        corrected_oof_v = general_prediction_fine_v + self.beta_ * residual_oof_v
 
-        self.residual_oof_r2_ = r2_score(y_fit, residual_oof)
-        self.general_oof_r2_ = r2_score(observed_fine, general_prediction_fine)
-        self.corrected_oof_r2_ = r2_score(observed_fine, corrected_oof)
-        self.general_oof_rmse_ = mean_squared_error(observed_fine, general_prediction_fine) ** 0.5
-        self.corrected_oof_rmse_ = mean_squared_error(observed_fine, corrected_oof) ** 0.5
+        self.residual_oof_r2_ = r2_score(y_fit_v, residual_oof_v)
+        self.general_oof_r2_ = r2_score(observed_fine_v, general_prediction_fine_v)
+        self.corrected_oof_r2_ = r2_score(observed_fine_v, corrected_oof_v)
+        self.general_oof_rmse_ = mean_squared_error(observed_fine_v, general_prediction_fine_v) ** 0.5
+        self.corrected_oof_rmse_ = mean_squared_error(observed_fine_v, corrected_oof_v) ** 0.5
         self.n_fine_ = int(fine_mask.sum())
+        self.n_validated_ = int(validated_within_fit.sum())
 
         self.is_fitted_ = True
 
         return self
 
     def _predict_residual(self, X_specialist_fine: pd.DataFrame) -> np.ndarray:
-        """Dispatch to whichever residual_model_type_ won candidate comparison."""
-        if self.residual_model_type_ == "ensemble":
-            xgb_pred = self.xgb_residual_model_.predict(X_specialist_fine)
-            gpr_pred = self.gpr_residual_model_.predict(X_specialist_fine)
-            return self.ensemble_weight_ * xgb_pred + (1.0 - self.ensemble_weight_) * gpr_pred
-
-        return self.residual_model_.predict(X_specialist_fine)
+        """Always the XGBoost+GPR ensemble blend -- see class docstring."""
+        xgb_pred = self.xgb_residual_model_.predict(X_specialist_fine)
+        gpr_pred = self.gpr_residual_model_.predict(X_specialist_fine)
+        return self.ensemble_weight_ * xgb_pred + (1.0 - self.ensemble_weight_) * gpr_pred
 
     def predict(
         self,
@@ -461,6 +609,8 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         summary = {
             "beta": self.beta_,
             "n_fine_grained": self.n_fine_,
+            "n_usable": self.n_usable_,
+            "n_validated": self.n_validated_,
             "residual_model_type": self.residual_model_type_,
             "candidate_oof_metrics": self.candidate_oof_metrics_,
             "ensemble_weight": self.ensemble_weight_,

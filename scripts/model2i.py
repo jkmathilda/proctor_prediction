@@ -16,11 +16,15 @@ specialist feature sets it compared there):
 data_analysis.ipynb never fit an analogous specialist correction for OWC --
 OWCFineGrainedResidualCorrector is this repo's own extension, validated
 against its own OOF numbers rather than a notebook citation (see
-owc_fine_correction.py's docstring). MDDFineGrainedResidualCorrector's
-fit()/predict() never actually reference MDD internally -- both correctors
-are the same target-agnostic candidate-comparison class (XGBoost vs GPR vs
-weighted ensemble, chosen by OOF MSE), just applied to each target's own
-residual. Coarse-grained rows are left untouched for both targets --
+owc_fine_correction.py's docstring, including a caveat: OWC's gain is real
+but much more fragile than MDD's across different CV seeds). Both correctors
+are the same target-agnostic class (MDDFineGrainedResidualCorrector's
+fit()/predict() never actually reference MDD internally), which always uses
+a weighted ensemble of XGBoost and GPR as its residual model -- an earlier
+version picked per-run among XGBoost-alone/GPR-alone/ensemble by OOF MSE, but
+that just added flip-flopping without changing the outcome (GPR-alone never
+won; the ensemble's own weight-fitting already collapses toward whichever
+model is better). Coarse-grained rows are left untouched for both targets --
 Atterberg limits/PI/LOI/kf (the specialist features) are only physically
 measured for fine-grained soils in the first place.
 
@@ -35,10 +39,35 @@ By default XGBoost's hyperparameters are Optuna-tuned on the full training
 set (--optuna_trials, default 50) for the two general models (MDD, OWC);
 pass --optuna_trials 0 to skip tuning. Each Group C corrector (MDD's and
 OWC's) has its own Optuna budget (--specialist_optuna_trials, default 50,
-shared between the two) for its XGBoost candidate; GPR and the ensemble are
-compared either way -- see MDDFineGrainedResidualCorrector's docstring. Pass
+shared between the two) for tuning the XGBoost half of its ensemble; pass
 --specialist_optuna_trials 0 to fall back to fixed XGBoost hyperparameters
-for that one candidate.
+there instead.
+
+VALIDATION SCHEME: quantile-stratified 5-fold (--folds, --val_strata;
+defaults 5/5), stratified on MDD quantile bins (matching scripts/v15.py's
+own choice to always stratify on MDD, col 0, even when also fitting OWC),
+drawn ONCE and reused across every stage: both general models' Optuna
+tuning, both general models' blend-weight fitting, AND both Group C
+correctors -- not four independently-drawn splits. Every final model
+(Ridge/GPR/XGBoost per target, each corrector's XGBoost+GPR ensemble) is
+still refit on ALL 201 training rows afterward, same as before. See
+general_model_impute.make_stratified_kfold_splits and
+MDDFineGrainedResidualCorrector's `stratified_split` parameter.
+
+This replaced an earlier version that matched v15.py's literal scheme -- a
+single 80/20 StratifiedShuffleSplit holdout, reused everywhere. That beat
+plain (unstratified) KFold on the actual Kaggle leaderboard, confirming
+quantile stratification is a real win on this small, skewed dataset -- but
+the single small holdout starved the Group C correction stage: only ~18 of
+the ~89 fine-grained rows fell in the general model's ~40-row validated
+slice, and the correctors' own 20% split of THAT left just ~4 rows to fit
+beta on, which landed near its upper bound (1.39 of 1.5) and needed the
+saturation-line clip on 3/87 test predictions -- the old plain-KFold scheme
+never needed that. StratifiedKFold keeps the stratification (every fold's
+validation set still spans the full MDD range) while restoring full
+coverage (every row, including every fine-grained row, gets validated
+across the 5 folds) -- same statistical footing the original KFold scheme
+had, without giving up what made stratification help on Kaggle.
 
 The physics guardrail from v10-v16/model1.py/model1i.py is kept: predicted
 OWC (after its own Group C correction) is clipped to >= 0, and predicted MDD
@@ -74,6 +103,7 @@ from src.general_model_impute import (
     tune_xgb_with_optuna,
     add_imputed_features,
     add_no_missing_features,
+    make_stratified_kfold_splits,
     IMPUTED_FEATURES,
 )
 from src.mdd_fine_correction import (
@@ -188,6 +218,21 @@ def main(args):
             random_state=args.seed,
         )
 
+        # Quantile-stratified K-fold (on MDD bins, matching v15.py's own
+        # choice even for OWC), drawn once and reused for every stage below
+        # -- see module docstring for why this replaced a single-holdout
+        # StratifiedShuffleSplit.
+        splits = make_stratified_kfold_splits(
+            train[MDD_TARGET].to_numpy(dtype=float),
+            n_splits=args.folds,
+            val_strata=args.val_strata, random_state=args.seed,
+        )
+        logger.info(
+            "validation scheme: StratifiedKFold folds=%d val_strata=%d "
+            "(stratified on MDD, full coverage)",
+            args.folds, args.val_strata,
+        )
+
     test_imputed = add_specialist_derived_features(test_imputed)
     X_test = test_imputed[IMPUTED_FEATURES]
     X_test_specialist = test_imputed[SPECIALIST_RAW_FEATURES]
@@ -223,12 +268,13 @@ def main(args):
                 logger.info("[%s] tuning XGBoost with Optuna (%d trials)...", target, args.optuna_trials)
                 xgb_model, study = tune_xgb_with_optuna(
                     X_train, y, n_trials=args.optuna_trials, random_state=args.seed,
+                    splits=splits,
                 )
                 logger.info("[%s] best CV MAE=%.4f  params=%s", target, study.best_value, study.best_params)
             else:
                 xgb_model = None  # WeightedBlendRegressor falls back to its hardcoded default
 
-            model = WeightedBlendRegressor(n_splits=5, random_state=args.seed, xgb_model=xgb_model)
+            model = WeightedBlendRegressor(random_state=args.seed, xgb_model=xgb_model, splits=splits)
             model.fit(X_train, y)
             models[target] = model
 
@@ -238,8 +284,9 @@ def main(args):
             target, summary["weights"]["ridge"], summary["weights"]["gpr"], summary["weights"]["xgboost"],
         )
         logger.info(
-            "[%s] internal OOF (5-fold, full training data): R2=%.4f MAE=%.4f RMSE=%.4f",
+            "[%s] internal OOF (n_validated=%d/%d): R2=%.4f MAE=%.4f RMSE=%.4f",
             target,
+            summary["n_validated"], len(train),
             summary["blend_oof_metrics"]["r2"],
             summary["blend_oof_metrics"]["mae"],
             summary["blend_oof_metrics"]["rmse"],
@@ -258,6 +305,9 @@ def main(args):
                 general_model=models[target],
                 optuna_trials=args.specialist_optuna_trials,
                 random_state=args.seed,
+                stratified_split=True,
+                val_strata=args.val_strata,
+                folds=args.folds,
             )
             corrector.fit(X_train, X_train_specialist, y_target, fine_mask_train)
             correctors[target] = corrector
@@ -265,10 +315,11 @@ def main(args):
         corrector = correctors[target]
         corrector_summary = corrector.get_training_summary()
         logger.info(
-            "[%s] Group C correction (fine-grained rows only, n=%d): "
+            "[%s] Group C correction (n_fine_grained=%d, n_usable=%d, n_validated=%d): "
             "residual_model=%s candidates=%s",
-            target, corrector_summary["n_fine_grained"],
-            corrector_summary["residual_model_type"], corrector_summary["candidate_oof_metrics"],
+            target, corrector_summary["n_fine_grained"], corrector_summary["n_usable"],
+            corrector_summary["n_validated"], corrector_summary["residual_model_type"],
+            corrector_summary["candidate_oof_metrics"],
         )
         logger.info(
             "[%s] Group C correction: beta=%.3f "
@@ -332,9 +383,14 @@ def parse_args():
     p.add_argument("--optuna_trials", type=int, default=50,
                    help="Optuna trials for XGBoost tuning per general-model target (0 to skip tuning)")
     p.add_argument("--specialist_optuna_trials", type=int, default=50,
-                   help="Optuna trials for tuning each Group C corrector's XGBoost candidate "
-                        "(0 to fall back to fixed hyperparameters for that one candidate; "
-                        "GPR and the ensemble are still compared either way)")
+                   help="Optuna trials for tuning the XGBoost half of each Group C corrector's "
+                        "ensemble (0 to fall back to fixed hyperparameters there instead)")
+    p.add_argument("--folds", type=int, default=5,
+                   help="number of StratifiedKFold folds, stratified on MDD quantile bins, "
+                        "reused across every pipeline stage (full coverage, unlike a single "
+                        "StratifiedShuffleSplit holdout)")
+    p.add_argument("--val_strata", type=int, default=5,
+                   help="MDD quantile strata used to stratify the folds")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
