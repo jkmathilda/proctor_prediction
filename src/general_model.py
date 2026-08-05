@@ -20,7 +20,13 @@ from sklearn.metrics import (
     mean_squared_error,
     r2_score,
 )
-from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
+from sklearn.model_selection import (
+    KFold,
+    StratifiedKFold,
+    StratifiedShuffleSplit,
+    cross_val_predict,
+    cross_val_score,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import RidgeCV
@@ -206,12 +212,115 @@ def make_default_target_xgb_model(random_state: int = 42) -> XGBRegressor:
     )
 
 
+def make_stratified_shuffle_splits(
+    y: Any,
+    n_splits: int = 1,
+    test_size: float = 0.2,
+    val_strata: int = 5,
+    random_state: int = 42,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """
+    scripts/v15.py's validation scheme: StratifiedShuffleSplit binned on
+    quantiles of y, so a split's validation set spans the target's full
+    range rather than a random slice. Defaults (n_splits=1, test_size=0.2,
+    val_strata=5) match v15.py's own CLI defaults -- a single 80/20
+    holdout, NOT a K-fold partition (see make_stratified_kfold_splits for
+    the full-coverage alternative and why it replaced this as model2i.py's
+    default).
+
+    Duplicated from general_model_impute.py, matching this module's
+    existing standalone-duplicate relationship to it.
+
+    Returns a list of (train_idx, val_idx) positional-index pairs.
+    """
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+    n_strata = int(min(val_strata, max(2, len(y_arr) // 10)))
+    edges = np.unique(np.quantile(y_arr, np.linspace(0, 1, n_strata + 1)))
+    strata = np.digitize(y_arr, edges[1:-1])
+    sss = StratifiedShuffleSplit(
+        n_splits=n_splits, test_size=test_size, random_state=random_state,
+    )
+    return list(sss.split(np.zeros(len(y_arr)), strata))
+
+
+def make_stratified_kfold_splits(
+    y: Any,
+    n_splits: int = 5,
+    val_strata: int = 5,
+    random_state: int = 42,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """
+    StratifiedKFold binned on quantiles of y -- every fold's validation set
+    spans the target's full range (unlike plain KFold's uncontrolled random
+    shuffle), while still covering every row exactly once across the
+    n_splits folds (unlike a single stratified holdout, which starves any
+    downstream stage that only sees a subset of the validated rows -- see
+    general_model_impute.py's identical helper for the full story of why
+    that mattered for the Group C correction stage).
+
+    Duplicated from general_model_impute.py rather than imported, matching
+    this module's existing standalone-duplicate relationship to it (both
+    files define their own WeightedBlendRegressor/tune_xgb_with_optuna
+    etc.; this file's version is for NO_MISSING_FEATURES rather than
+    IMPUTED_FEATURES).
+
+    Returns a list of (train_idx, val_idx) positional-index pairs so a
+    caller can draw the split ONCE and reuse the identical partition across
+    every stage of a pipeline.
+    """
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+    n_strata = int(min(val_strata, max(2, len(y_arr) // 10)))
+    edges = np.unique(np.quantile(y_arr, np.linspace(0, 1, n_strata + 1)))
+    strata = np.digitize(y_arr, edges[1:-1])
+    skf = StratifiedKFold(
+        n_splits=n_splits, shuffle=True, random_state=random_state,
+    )
+    return list(skf.split(np.zeros(len(y_arr)), strata))
+
+
+def _oof_predict_from_splits(
+    make_estimator: Any,
+    X: Any,
+    y: Any,
+    splits: list[tuple[np.ndarray, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    cross_val_predict's counterpart for an externally-provided list of
+    (train_idx, val_idx) splits. Duplicated from general_model_impute.py --
+    see that module's version for the full docstring.
+    """
+    is_frame = isinstance(X, pd.DataFrame)
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+    n = len(y_arr)
+    pred_sum = np.zeros(n)
+    cnt = np.zeros(n)
+
+    X_arr = X if is_frame else np.asarray(X, dtype=float)
+
+    for tr, va in splits:
+        model = make_estimator()
+        if is_frame:
+            model.fit(X_arr.iloc[tr], y_arr[tr])
+            pred = model.predict(X_arr.iloc[va])
+        else:
+            model.fit(X_arr[tr], y_arr[tr])
+            pred = model.predict(X_arr[va])
+        pred_sum[va] += np.asarray(pred, dtype=float)
+        cnt[va] += 1
+
+    validated = cnt > 0
+    oof = np.zeros(n)
+    oof[validated] = pred_sum[validated] / cnt[validated]
+    return oof, validated
+
+
 def tune_xgb_with_optuna(
     X: Any,
     y: Any,
     n_trials: int = 50,
     n_splits: int = 5,
     random_state: int = 42,
+    splits: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[XGBRegressor, optuna.Study]:
     """
     Optuna-tuned replacement for make_default_target_xgb_model /
@@ -224,6 +333,13 @@ def tune_xgb_with_optuna(
     same folds -- comparable to how alpha/blend weights are estimated
     elsewhere in this module.
 
+    splits:
+        Externally-provided (train_idx, val_idx) pairs (e.g. from
+        make_stratified_kfold_splits) to evaluate every trial on instead of
+        a fresh KFold. If None (default), unchanged from before this
+        parameter existed: KFold(n_splits, shuffle=True, random_state)-based
+        cross_val_score.
+
     Returns an unfitted XGBRegressor built from the best trial's params
     (caller fits it, same as any other component passed into
     WeightedBlendRegressor/GlobalResidualRegressor/BlendedResidualModel) and
@@ -233,7 +349,8 @@ def tune_xgb_with_optuna(
     X_arr = np.asarray(X, dtype=float)
     y_arr = np.asarray(y, dtype=float).reshape(-1)
 
-    cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    if splits is None:
+        cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
     def objective(trial: optuna.Trial) -> float:
         params = dict(
@@ -251,15 +368,20 @@ def tune_xgb_with_optuna(
             n_jobs=1,
         )
 
-        scores = cross_val_score(
-            XGBRegressor(**params),
-            X_arr,
-            y_arr,
-            cv=cv,
-            scoring="neg_mean_absolute_error",
-        )
+        if splits is None:
+            scores = cross_val_score(
+                XGBRegressor(**params),
+                X_arr,
+                y_arr,
+                cv=cv,
+                scoring="neg_mean_absolute_error",
+            )
+            return float(-scores.mean())
 
-        return float(-scores.mean())
+        oof, validated = _oof_predict_from_splits(
+            lambda: XGBRegressor(**params), X_arr, y_arr, splits,
+        )
+        return float(mean_absolute_error(y_arr[validated], oof[validated]))
 
     study = optuna.create_study(
         direction="minimize",
@@ -1061,9 +1183,21 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
 
     n_splits:
         CV folds used to build out-of-fold predictions for weight fitting.
+        Ignored if `splits` is passed.
 
     random_state:
         Random seed for shuffled cross-validation and base-model fitting.
+
+    splits:
+        Externally-provided (train_idx, val_idx) pairs (e.g. from
+        make_stratified_kfold_splits) to use instead of a fresh
+        KFold(n_splits). Unlike KFold these splits aren't required to cover
+        every row; rows never landing in any split's validation set get
+        `validated=False` in get_oof_results() and NaN OOF predictions,
+        with metrics computed only over the validated subset. If None
+        (default), behavior is unchanged from before this parameter
+        existed: a fresh KFold(n_splits, shuffle=True, random_state) via
+        cross_val_predict, covering every row.
     """
 
     def __init__(
@@ -1073,12 +1207,14 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
         xgb_model: Any | None = None,
         n_splits: int = 5,
         random_state: int = 42,
+        splits: list[tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> None:
         self.ridge_model = ridge_model
         self.gpr_model = gpr_model
         self.xgb_model = xgb_model
         self.n_splits = n_splits
         self.random_state = random_state
+        self.splits = splits
 
     def _get_ridge(self) -> Any:
         if self.ridge_model is None:
@@ -1173,34 +1309,79 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
                 "X and y contain different numbers of samples."
             )
 
-        if len(y_checked) < self.n_splits:
-            raise ValueError(
-                "The number of samples must be at least "
-                "as large as n_splits."
-            )
-
-        cv = self._make_cv()
         n_features = (
             X_checked.shape[1]
             if isinstance(X_checked, np.ndarray)
             else len(X_checked.columns)
         )
 
-        ridge_oof = cross_val_predict(
-            self._get_ridge(), X_checked, y_checked, cv=cv,
-        )
+        if self.splits is not None:
+            # ---------------------------------------------------------
+            # Externally-provided splits, not guaranteed to cover every
+            # row -- see _oof_predict_from_splits.
+            # ---------------------------------------------------------
+            ridge_oof, validated = _oof_predict_from_splits(
+                self._get_ridge, X_checked, y_checked, self.splits,
+            )
+            gpr_oof, _ = _oof_predict_from_splits(
+                lambda: self._get_gpr(n_features), X_checked, y_checked, self.splits,
+            )
+            xgb_oof, _ = _oof_predict_from_splits(
+                self._get_xgb, X_checked, y_checked, self.splits,
+            )
 
-        gpr_oof = cross_val_predict(
-            self._get_gpr(n_features), X_checked, y_checked, cv=cv,
-        )
+            if not validated.any():
+                raise ValueError(
+                    "No rows were validated by any split -- check "
+                    "test_size/n_splits, or pass splits=None for KFold."
+                )
 
-        xgb_oof = cross_val_predict(
-            self._get_xgb(), X_checked, y_checked, cv=cv,
-        )
+            predictions = np.column_stack([ridge_oof, gpr_oof, xgb_oof])
+            self.weights_ = self._fit_weights(
+                predictions[validated], y_checked[validated],
+            )
 
-        predictions = np.column_stack([ridge_oof, gpr_oof, xgb_oof])
-        self.weights_ = self._fit_weights(predictions, y_checked)
-        blend_oof = predictions @ self.weights_
+            blend_oof = np.full(len(y_checked), np.nan)
+            blend_oof[validated] = predictions[validated] @ self.weights_
+            ridge_oof = np.where(validated, ridge_oof, np.nan)
+            gpr_oof = np.where(validated, gpr_oof, np.nan)
+            xgb_oof = np.where(validated, xgb_oof, np.nan)
+
+            self.ridge_oof_metrics_ = calculate_regression_metrics(y_checked[validated], ridge_oof[validated])
+            self.gpr_oof_metrics_ = calculate_regression_metrics(y_checked[validated], gpr_oof[validated])
+            self.xgb_oof_metrics_ = calculate_regression_metrics(y_checked[validated], xgb_oof[validated])
+            self.blend_oof_metrics_ = calculate_regression_metrics(y_checked[validated], blend_oof[validated])
+            self.validated_ = validated
+        else:
+            if len(y_checked) < self.n_splits:
+                raise ValueError(
+                    "The number of samples must be at least "
+                    "as large as n_splits."
+                )
+
+            cv = self._make_cv()
+
+            ridge_oof = cross_val_predict(
+                self._get_ridge(), X_checked, y_checked, cv=cv,
+            )
+
+            gpr_oof = cross_val_predict(
+                self._get_gpr(n_features), X_checked, y_checked, cv=cv,
+            )
+
+            xgb_oof = cross_val_predict(
+                self._get_xgb(), X_checked, y_checked, cv=cv,
+            )
+
+            predictions = np.column_stack([ridge_oof, gpr_oof, xgb_oof])
+            self.weights_ = self._fit_weights(predictions, y_checked)
+            blend_oof = predictions @ self.weights_
+
+            self.ridge_oof_metrics_ = calculate_regression_metrics(y_checked, ridge_oof)
+            self.gpr_oof_metrics_ = calculate_regression_metrics(y_checked, gpr_oof)
+            self.xgb_oof_metrics_ = calculate_regression_metrics(y_checked, xgb_oof)
+            self.blend_oof_metrics_ = calculate_regression_metrics(y_checked, blend_oof)
+            self.validated_ = np.ones(len(y_checked), dtype=bool)
 
         # ---------------------------------------------------------
         # Refit all three base models on all available data
@@ -1219,11 +1400,6 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
         self.gpr_oof_prediction_ = gpr_oof
         self.xgb_oof_prediction_ = xgb_oof
         self.blend_oof_prediction_ = blend_oof
-
-        self.ridge_oof_metrics_ = calculate_regression_metrics(y_checked, ridge_oof)
-        self.gpr_oof_metrics_ = calculate_regression_metrics(y_checked, gpr_oof)
-        self.xgb_oof_metrics_ = calculate_regression_metrics(y_checked, xgb_oof)
-        self.blend_oof_metrics_ = calculate_regression_metrics(y_checked, blend_oof)
 
         self.is_fitted_ = True
 
@@ -1277,6 +1453,15 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
 
         These are the values that should be used for residual diagnostics
         and for training a later soil-specific correction.
+
+        `validated` marks which rows actually received an OOF prediction --
+        always all-True when fit with KFold (splits=None); when fit with
+        externally-provided splits, only rows that landed in some split's
+        validation set are True, and every other column is NaN for the
+        rest -- a caller building a correction on top must filter to
+        `validated` before using blend_oof_prediction/remaining_residual as
+        inputs, to avoid training on NaN or on leaked (in-sample)
+        predictions.
         """
 
         self._check_is_fitted()
@@ -1292,6 +1477,7 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
                 "gpr_oof_prediction": self.gpr_oof_prediction_,
                 "xgb_oof_prediction": self.xgb_oof_prediction_,
                 "blend_oof_prediction": self.blend_oof_prediction_,
+                "validated": self.validated_,
             },
             index=index,
         )
@@ -1320,6 +1506,7 @@ class WeightedBlendRegressor(_ValidatedRegressorMixin, BaseEstimator, RegressorM
                 "gpr": float(self.weights_[1]),
                 "xgboost": float(self.weights_[2]),
             },
+            "n_validated": int(self.validated_.sum()),
             "ridge_oof_metrics": self.ridge_oof_metrics_.as_dict(),
             "gpr_oof_metrics": self.gpr_oof_metrics_.as_dict(),
             "xgb_oof_metrics": self.xgb_oof_metrics_.as_dict(),

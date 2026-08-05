@@ -1,56 +1,18 @@
 """
 mdd_fine_correction.py
-=======================
-The residual model itself goes beyond what the notebook tried. Its
-evaluate_specialist() only ever fit XGBoost; MDDFineGrainedResidualCorrector
-always uses a weighted ensemble of XGBoost (Optuna-tuned by default, see
-optuna_trials) and a Gaussian Process (general_model_impute.make_default_gpr_model,
-which tunes its own kernel hyperparameters by marginal-likelihood optimization
-rather than Optuna), blend weight fit the same way
-general_model_impute.BlendedResidualModel does. See
-MDDFineGrainedResidualCorrector's docstring for the full procedure, including
-why an earlier XGBoost-alone/GPR-alone/ensemble comparison was simplified
-away.
+======================
 
-Wraps an already-fitted "general model" -- e.g. scripts/model1.py's
-WeightedBlendRegressor (general_model.py, NO_MISSING_FEATURES) or
-scripts/model1i.py's (general_model_impute.py, IMPUTED_FEATURES). Both
-classes expose an identical predict()/get_oof_results() interface, so
-MDDFineGrainedResidualCorrector duck-types the general model rather than
-importing either concretely -- whichever general model the calling script
-chooses to run is the one whose residuals get corrected here.
+Residual correction model for MDD predictions on fine-grained soils.
 
-Only MDD is corrected (the notebook never fit an analogous specialist
-correction for OWC -- see owc_fine_correction.py for this repo's own
-extension to OWC) and only fine-grained rows are corrected -- Atterberg
-limits/PI/LOI/kf (the specialist features) are only physically measured for
-fine-grained soils in the first place, so coarse-grained rows pass through
-the general model's raw prediction unchanged.
+Wraps an already-fitted general model, learns out-of-fold residuals, and
+trains a weighted ensemble of Optuna-tuned XGBoost and Gaussian Process
+Regression to predict residuals from specialist soil features
+(Atterberg limits, PI, LOI, kf). Corrected predictions are obtained by
+adding the predicted residual to the general model prediction.
 
-By default (stratified_split=False) this class draws its own plain
-KFold(n_splits) internally, giving every fine-grained row an out-of-fold
-residual prediction -- full coverage, like
-general_model_impute.WeightedBlendRegressor's default.
-
-Passing stratified_split=True switches to quantile-stratified K-fold splits
-instead of plain KFold (general_model_impute.make_stratified_kfold_splits):
-the general_model must itself have been fit with externally-provided splits
-(WeightedBlendRegressor(splits=...)) so its get_oof_results() exposes a
-`validated` column; this corrector then fits/evaluates using only the
-fine-grained rows the general model actually validated (usable_mask -- with
-StratifiedKFold at the general-model level this is effectively all of
-fine_mask, since StratifiedKFold covers every row), and draws its OWN
-stratified-K-fold split within that subset. An earlier version of this used
-scripts/v15.py's literal scheme -- a single 80/20 StratifiedShuffleSplit
-holdout -- reused at every pipeline stage; on Kaggle that beat plain KFold
-(stratifying by target quantile is a real win on this small, skewed
-dataset), but the single small holdout starved this correction stage badly:
-beta got fit on just 4 validated fine-grained rows, landing at 1.39 of its
-1.5 cap and needing the saturation-line clip on 3/87 test predictions the
-old KFold scheme never triggered -- classic small-sample overfitting.
-StratifiedKFold keeps the stratification (still spans the full target range
-per fold) while restoring full coverage, same statistical footing as the
-original KFold scheme.
+Only fine-grained soils are corrected; coarse-grained soils use the
+general model prediction unchanged. Supports both standard K-Fold and
+quantile-stratified K-Fold cross-validation.
 """
 
 from __future__ import annotations
@@ -73,6 +35,7 @@ from src.general_model_impute import (
     add_imputed_features,
     make_default_gpr_model,
     make_stratified_kfold_splits,
+    make_stratified_shuffle_splits,
     tune_xgb_with_optuna,
     _oof_predict_from_splits,
 )
@@ -280,8 +243,22 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
 
     val_strata, folds:
         Only used when stratified_split=True -- passed straight to
-        make_stratified_kfold_splits (val_strata, n_splits) for this
-        corrector's own internal split.
+        make_stratified_kfold_splits/make_stratified_shuffle_splits
+        (val_strata, n_splits) for this corrector's own internal split.
+
+    split_kind:
+        Only used when stratified_split=True. "kfold" (default): this
+        corrector's own internal split is make_stratified_kfold_splits
+        (full coverage, folds foldscount). "shuffle": the original
+        scripts/v15.py-literal single-holdout scheme instead
+        (make_stratified_shuffle_splits, test_size=val_frac) -- kept only
+        for comparing the two schemes against a held-out set (see
+        scripts/evaluate_validation_schemes.py); "kfold" is what
+        model2i.py actually uses, for the reasons in the module docstring.
+
+    val_frac:
+        Only used when stratified_split=True and split_kind="shuffle" --
+        test_size passed to make_stratified_shuffle_splits.
     """
 
     def __init__(
@@ -296,6 +273,8 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         stratified_split: bool = False,
         val_strata: int = 5,
         folds: int = 5,
+        split_kind: str = "kfold",
+        val_frac: float = 0.2,
     ) -> None:
         self.general_model = general_model
         self.xgb_model = xgb_model
@@ -307,6 +286,8 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         self.stratified_split = stratified_split
         self.val_strata = val_strata
         self.folds = folds
+        self.split_kind = split_kind
+        self.val_frac = val_frac
 
     def _get_gpr(self, n_features: int) -> Any:
         if self.gpr_model is None:
@@ -412,10 +393,20 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
                     f"Specialist features contain missing values in columns: {missing_cols}"
                 )
 
-            splits = make_stratified_kfold_splits(
-                y_fit, n_splits=self.folds,
-                val_strata=self.val_strata, random_state=self.random_state,
-            )
+            if self.split_kind == "shuffle":
+                splits = make_stratified_shuffle_splits(
+                    y_fit, n_splits=self.folds, test_size=self.val_frac,
+                    val_strata=self.val_strata, random_state=self.random_state,
+                )
+            elif self.split_kind == "kfold":
+                splits = make_stratified_kfold_splits(
+                    y_fit, n_splits=self.folds,
+                    val_strata=self.val_strata, random_state=self.random_state,
+                )
+            else:
+                raise ValueError(
+                    f"Unknown split_kind={self.split_kind!r} -- must be 'kfold' or 'shuffle'."
+                )
             general_prediction_fine = oof.loc[usable_mask, "blend_oof_prediction"].to_numpy()
             observed_fine = oof.loc[usable_mask, "observed"].to_numpy()
             self.n_usable_ = int(usable_mask.sum())

@@ -104,6 +104,7 @@ from src.general_model_impute import (
     add_imputed_features,
     add_no_missing_features,
     make_stratified_kfold_splits,
+    make_stratified_shuffle_splits,
     IMPUTED_FEATURES,
 )
 from src.mdd_fine_correction import (
@@ -218,20 +219,31 @@ def main(args):
             random_state=args.seed,
         )
 
-        # Quantile-stratified K-fold (on MDD bins, matching v15.py's own
-        # choice even for OWC), drawn once and reused for every stage below
-        # -- see module docstring for why this replaced a single-holdout
-        # StratifiedShuffleSplit.
-        splits = make_stratified_kfold_splits(
-            train[MDD_TARGET].to_numpy(dtype=float),
-            n_splits=args.folds,
-            val_strata=args.val_strata, random_state=args.seed,
-        )
-        logger.info(
-            "validation scheme: StratifiedKFold folds=%d val_strata=%d "
-            "(stratified on MDD, full coverage)",
-            args.folds, args.val_strata,
-        )
+        # Quantile-stratified split (on MDD bins, matching v15.py's own
+        # choice even for OWC), drawn once and reused for every stage below.
+        # --split_kind kfold (default): StratifiedKFold, full coverage.
+        # --split_kind shuffle: scripts/v15.py's literal single-holdout scheme.
+        y_mdd_all = train[MDD_TARGET].to_numpy(dtype=float)
+        if args.split_kind == "kfold":
+            splits = make_stratified_kfold_splits(
+                y_mdd_all, n_splits=args.folds, val_strata=args.val_strata, random_state=args.seed,
+            )
+            logger.info(
+                "validation scheme: StratifiedKFold folds=%d val_strata=%d (stratified on MDD, full coverage)",
+                args.folds, args.val_strata,
+            )
+        elif args.split_kind == "shuffle":
+            splits = make_stratified_shuffle_splits(
+                y_mdd_all, n_splits=args.folds, test_size=args.val_frac,
+                val_strata=args.val_strata, random_state=args.seed,
+            )
+            logger.info(
+                "validation scheme: StratifiedShuffleSplit folds=%d val_frac=%.2f val_strata=%d "
+                "(v15.py-style single holdout, stratified on MDD)",
+                args.folds, args.val_frac, args.val_strata,
+            )
+        else:
+            raise ValueError(f"Unknown --split_kind={args.split_kind!r}")
 
     test_imputed = add_specialist_derived_features(test_imputed)
     X_test = test_imputed[IMPUTED_FEATURES]
@@ -306,7 +318,9 @@ def main(args):
                 optuna_trials=args.specialist_optuna_trials,
                 random_state=args.seed,
                 stratified_split=True,
+                split_kind=args.split_kind,
                 val_strata=args.val_strata,
+                val_frac=args.val_frac,
                 folds=args.folds,
             )
             corrector.fit(X_train, X_train_specialist, y_target, fine_mask_train)
@@ -385,12 +399,18 @@ def parse_args():
     p.add_argument("--specialist_optuna_trials", type=int, default=50,
                    help="Optuna trials for tuning the XGBoost half of each Group C corrector's "
                         "ensemble (0 to fall back to fixed hyperparameters there instead)")
+    p.add_argument("--split_kind", choices=["kfold", "shuffle"], default="kfold",
+                   help="'kfold': StratifiedKFold, full coverage (default). "
+                        "'shuffle': v15.py's single StratifiedShuffleSplit holdout")
     p.add_argument("--folds", type=int, default=5,
-                   help="number of StratifiedKFold folds, stratified on MDD quantile bins, "
-                        "reused across every pipeline stage (full coverage, unlike a single "
-                        "StratifiedShuffleSplit holdout)")
+                   help="StratifiedKFold fold count (split_kind=kfold) or number of "
+                        "StratifiedShuffleSplit draws (split_kind=shuffle -- pass --folds 1 "
+                        "explicitly for the literal v15.py scheme), reused across every "
+                        "pipeline stage")
+    p.add_argument("--val_frac", type=float, default=0.2,
+                   help="holdout fraction, only used when split_kind=shuffle")
     p.add_argument("--val_strata", type=int, default=5,
-                   help="MDD quantile strata used to stratify the folds")
+                   help="MDD quantile strata used to stratify the split")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 

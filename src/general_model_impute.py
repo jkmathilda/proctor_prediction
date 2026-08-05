@@ -12,6 +12,7 @@ from scipy.optimize import minimize, minimize_scalar
 
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.compose import TransformedTargetRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.exceptions import NotFittedError
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401 -- required before importing IterativeImputer
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -725,6 +726,84 @@ def tune_xgb_with_optuna(
         objective="reg:squarederror",
         random_state=random_state,
         n_jobs=1,
+        **study.best_params,
+    )
+
+    return best_model, study
+
+
+def tune_histgbt_with_optuna(
+    X: Any,
+    y: Any,
+    n_trials: int = 50,
+    n_splits: int = 5,
+    random_state: int = 42,
+    splits: list[tuple[np.ndarray, np.ndarray]] | None = None,
+) -> tuple[HistGradientBoostingRegressor, optuna.Study]:
+    """
+    HistGradientBoostingRegressor counterpart to tune_xgb_with_optuna -- same search
+    protocol (TPE sampler, mean CV MAE objective, same n_trials default), so a
+    HistGBT-vs-XGBoost comparison isn't biased by one getting more tuning effort than the
+    other. Added specifically to answer that question for this dataset rather than assume
+    an answer either way.
+
+    Searches max_iter, learning_rate, max_leaf_nodes, max_depth, min_samples_leaf,
+    l2_regularization -- HistGBT's closest analogues to tune_xgb_with_optuna's
+    n_estimators/learning_rate/max_depth/min_child_weight/reg_lambda. early_stopping is
+    left off (max_iter is tuned directly instead) to match tune_xgb_with_optuna's
+    n_estimators-is-a-tuned-hyperparameter convention, rather than mixing two different
+    "how many trees" mechanisms across the two searches.
+
+    See tune_xgb_with_optuna's docstring for the `splits` parameter's meaning (externally
+    supplied (train_idx, val_idx) pairs vs. a fresh internal KFold).
+
+    Returns an unfitted HistGradientBoostingRegressor built from the best trial's params
+    (caller fits it) and the Optuna study.
+    """
+
+    X_arr = np.asarray(X, dtype=float)
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+
+    if splits is None:
+        cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    def objective(trial: optuna.Trial) -> float:
+        max_depth = trial.suggest_int("max_depth", 2, 10)
+        params = dict(
+            max_iter=trial.suggest_int("max_iter", 100, 800),
+            learning_rate=trial.suggest_float("learning_rate", 0.005, 0.3, log=True),
+            max_leaf_nodes=trial.suggest_int("max_leaf_nodes", 8, 64),
+            max_depth=max_depth,
+            min_samples_leaf=trial.suggest_int("min_samples_leaf", 2, 30),
+            l2_regularization=trial.suggest_float("l2_regularization", 1e-4, 10.0, log=True),
+            early_stopping=False,
+            random_state=random_state,
+        )
+
+        if splits is None:
+            scores = cross_val_score(
+                HistGradientBoostingRegressor(**params),
+                X_arr,
+                y_arr,
+                cv=cv,
+                scoring="neg_mean_absolute_error",
+            )
+            return float(-scores.mean())
+
+        oof, validated = _oof_predict_from_splits(
+            lambda: HistGradientBoostingRegressor(**params), X_arr, y_arr, splits,
+        )
+        return float(mean_absolute_error(y_arr[validated], oof[validated]))
+
+    study = optuna.create_study(
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(seed=random_state),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+    best_model = HistGradientBoostingRegressor(
+        early_stopping=False,
+        random_state=random_state,
         **study.best_params,
     )
 

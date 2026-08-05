@@ -13,4 +13,6 @@ shapiq
 statsmodels
 pysindy
 statsmodels
+tabpfn
+tabicl[finetune]
 

@@ -57,6 +57,8 @@ from src.general_model_impute import (
     tune_xgb_with_optuna,
     add_imputed_features,
     add_no_missing_features,
+    make_stratified_kfold_splits,
+    make_stratified_shuffle_splits,
     IMPUTED_FEATURES,
 )
 
@@ -171,6 +173,34 @@ def main(args):
                 "imputation -- this should not happen."
             )
 
+    # Quantile-stratified split (on MDD bins), drawn once and reused for
+    # both targets' Optuna tuning and blend-weight fitting.
+    # --split_kind kfold (default): StratifiedKFold, full coverage.
+    # --split_kind shuffle: scripts/v15.py's literal single-holdout scheme.
+    splits = None
+    if not cache_hit:
+        y_mdd_all = train["proctor_mdd_g_cm3"].to_numpy(dtype=float)
+        if args.split_kind == "kfold":
+            splits = make_stratified_kfold_splits(
+                y_mdd_all, n_splits=args.folds, val_strata=args.val_strata, random_state=args.seed,
+            )
+            logger.info(
+                "validation scheme: StratifiedKFold folds=%d val_strata=%d (stratified on MDD, full coverage)",
+                args.folds, args.val_strata,
+            )
+        elif args.split_kind == "shuffle":
+            splits = make_stratified_shuffle_splits(
+                y_mdd_all, n_splits=args.folds, test_size=args.val_frac,
+                val_strata=args.val_strata, random_state=args.seed,
+            )
+            logger.info(
+                "validation scheme: StratifiedShuffleSplit folds=%d val_frac=%.2f val_strata=%d "
+                "(v15.py-style single holdout, stratified on MDD)",
+                args.folds, args.val_frac, args.val_strata,
+            )
+        else:
+            raise ValueError(f"Unknown --split_kind={args.split_kind!r}")
+
     preds = {}
     for target in TARGETS:
         if cache_hit:
@@ -182,12 +212,13 @@ def main(args):
                 logger.info("[%s] tuning XGBoost with Optuna (%d trials)...", target, args.optuna_trials)
                 xgb_model, study = tune_xgb_with_optuna(
                     X_train, y, n_trials=args.optuna_trials, random_state=args.seed,
+                    splits=splits,
                 )
                 logger.info("[%s] best CV MAE=%.4f  params=%s", target, study.best_value, study.best_params)
             else:
                 xgb_model = None  # WeightedBlendRegressor falls back to its hardcoded default
 
-            model = WeightedBlendRegressor(n_splits=5, random_state=args.seed, xgb_model=xgb_model)
+            model = WeightedBlendRegressor(random_state=args.seed, xgb_model=xgb_model, splits=splits)
             model.fit(X_train, y)
             models[target] = model
 
@@ -197,8 +228,9 @@ def main(args):
             target, summary["weights"]["ridge"], summary["weights"]["gpr"], summary["weights"]["xgboost"],
         )
         logger.info(
-            "[%s] internal OOF (5-fold, full training data): R2=%.4f MAE=%.4f RMSE=%.4f",
+            "[%s] internal OOF (n_validated=%d/%d): R2=%.4f MAE=%.4f RMSE=%.4f",
             target,
+            summary["n_validated"], len(train),
             summary["blend_oof_metrics"]["r2"],
             summary["blend_oof_metrics"]["mae"],
             summary["blend_oof_metrics"]["rmse"],
@@ -254,6 +286,17 @@ def parse_args():
                    help="ignore --model_out if it exists and fit fresh anyway")
     p.add_argument("--optuna_trials", type=int, default=50,
                    help="Optuna trials for XGBoost tuning per target (0 to skip tuning)")
+    p.add_argument("--split_kind", choices=["kfold", "shuffle"], default="kfold",
+                   help="'kfold': StratifiedKFold, full coverage (default). "
+                        "'shuffle': v15.py's single StratifiedShuffleSplit holdout")
+    p.add_argument("--folds", type=int, default=5,
+                   help="StratifiedKFold fold count (split_kind=kfold) or number of "
+                        "StratifiedShuffleSplit draws (split_kind=shuffle -- pass --folds 1 "
+                        "explicitly for the literal v15.py scheme)")
+    p.add_argument("--val_frac", type=float, default=0.2,
+                   help="holdout fraction, only used when split_kind=shuffle")
+    p.add_argument("--val_strata", type=int, default=5,
+                   help="MDD quantile strata used to stratify the split")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
