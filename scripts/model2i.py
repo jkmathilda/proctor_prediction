@@ -43,14 +43,30 @@ shared between the two) for tuning the XGBoost half of its ensemble; pass
 --specialist_optuna_trials 0 to fall back to fixed XGBoost hyperparameters
 there instead.
 
+--exclude_ids ASYMMETRY: unlike model1i.py/model3.py (where --exclude_ids
+drops rows from the entire pipeline), here it drops rows from the GENERAL
+model's own fit ONLY -- the Group C correction stage below still trains on
+every row, including excluded ones. The MICE imputers are fit on the full
+(unexcluded) training set either way; they aren't "the general model" in
+the sense this flag means. This lets a row (e.g. a suspected outlier)
+be withheld from the base Ridge/GPR/XGBoost blend while still letting the
+fine-grained specialist correction learn from it. Mechanically, an excluded
+row was never in the general model's own K-fold splits, so it has no real
+out-of-fold prediction the way every other row does; get_oof_results() (via
+src.held_out_general_model.GeneralModelWithHeldOutRows) substitutes the
+general model's raw predict() output for that row instead -- an honest, non-leaked estimate
+(the general model genuinely never trained on it), just not a
+cross-validated one.
+
 VALIDATION SCHEME: quantile-stratified 5-fold (--folds, --val_strata;
 defaults 5/5), stratified on MDD quantile bins (matching scripts/v15.py's
 own choice to always stratify on MDD, col 0, even when also fitting OWC),
-drawn ONCE and reused across every stage: both general models' Optuna
+drawn ONCE (over the general model's OWN training rows, i.e. excluding
+--exclude_ids) and reused across every stage: both general models' Optuna
 tuning, both general models' blend-weight fitting, AND both Group C
 correctors -- not four independently-drawn splits. Every final model
 (Ridge/GPR/XGBoost per target, each corrector's XGBoost+GPR ensemble) is
-still refit on ALL 201 training rows afterward, same as before. See
+still refit on all of its own training rows afterward, same as before. See
 general_model_impute.make_stratified_kfold_splits and
 MDDFineGrainedResidualCorrector's `stratified_split` parameter.
 
@@ -83,6 +99,8 @@ Run:
     python scripts/model2i.py
     python scripts/model2i.py --optuna_trials 0 --specialist_optuna_trials 0   # skip tuning, fast
     python scripts/model2i.py --force_retrain     # ignore cached model
+    python scripts/model2i.py --exclude_ids 155 --force_retrain   # id 155 out of the general
+                                                                   # model, still in the correction
 """
 
 import argparse
@@ -95,6 +113,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -113,6 +132,7 @@ from src.mdd_fine_correction import (
     SPECIALIST_RAW_FEATURES,
 )
 from src.owc_fine_correction import OWCFineGrainedResidualCorrector
+from src.held_out_general_model import GeneralModelWithHeldOutRows
 
 TARGETS = ["proctor_mdd_g_cm3", "proctor_owc_pct"]
 MDD_TARGET = "proctor_mdd_g_cm3"
@@ -175,6 +195,20 @@ def main(args):
     train = add_no_missing_features(train)
     test = add_no_missing_features(test)
 
+    general_mask = np.ones(len(train), dtype=bool)
+    if args.exclude_ids:
+        general_mask = ~train["id"].isin(args.exclude_ids).to_numpy()
+        logger.info(
+            "excluding ids=%s from the GENERAL model's training only (%d -> %d rows); "
+            "the Group C correction stage still trains on all %d rows",
+            args.exclude_ids, len(train), int(general_mask.sum()), len(train),
+        )
+    n_general = int(general_mask.sum())
+    # Row index of the general model's own training rows -- needed below for
+    # the full-set OOF reconstruction regardless of cache_hit (unlike
+    # X_train_general, which is only built in the non-cached branch).
+    general_index = train.index[general_mask]
+
     cache_hit = (
         os.path.exists(args.model_out)
         and not args.force_retrain
@@ -220,13 +254,15 @@ def main(args):
         )
 
         # Quantile-stratified split (on MDD bins, matching v15.py's own
-        # choice even for OWC), drawn once and reused for every stage below.
+        # choice even for OWC), drawn once over the GENERAL model's own
+        # training rows (excluding --exclude_ids) and reused for every
+        # stage below, including the Group C correctors.
         # --split_kind kfold (default): StratifiedKFold, full coverage.
         # --split_kind shuffle: scripts/v15.py's literal single-holdout scheme.
-        y_mdd_all = train[MDD_TARGET].to_numpy(dtype=float)
+        y_mdd_general = train.loc[general_mask, MDD_TARGET].to_numpy(dtype=float)
         if args.split_kind == "kfold":
             splits = make_stratified_kfold_splits(
-                y_mdd_all, n_splits=args.folds, val_strata=args.val_strata, random_state=args.seed,
+                y_mdd_general, n_splits=args.folds, val_strata=args.val_strata, random_state=args.seed,
             )
             logger.info(
                 "validation scheme: StratifiedKFold folds=%d val_strata=%d (stratified on MDD, full coverage)",
@@ -234,7 +270,7 @@ def main(args):
             )
         elif args.split_kind == "shuffle":
             splits = make_stratified_shuffle_splits(
-                y_mdd_all, n_splits=args.folds, test_size=args.val_frac,
+                y_mdd_general, n_splits=args.folds, test_size=args.val_frac,
                 val_strata=args.val_strata, random_state=args.seed,
             )
             logger.info(
@@ -259,11 +295,18 @@ def main(args):
 
     if not cache_hit:
         train_imputed = add_specialist_derived_features(train_imputed)
-        X_train = train_imputed[IMPUTED_FEATURES]
-        X_train_specialist = train_imputed[SPECIALIST_RAW_FEATURES]
-        fine_mask_train = train_imputed["fine-grained"].to_numpy(dtype=bool)
 
-        if X_train.isna().any().any():
+        # Full-data views (every row, including anything --exclude_ids
+        # dropped from the general model) -- what the Group C correction
+        # stage trains on.
+        X_train_full = train_imputed[IMPUTED_FEATURES]
+        X_train_specialist_full = train_imputed[SPECIALIST_RAW_FEATURES]
+        fine_mask_train_full = train_imputed["fine-grained"].to_numpy(dtype=bool)
+
+        # General-model-only view -- excludes --exclude_ids.
+        X_train_general = X_train_full.loc[general_mask]
+
+        if X_train_full.isna().any().any():
             raise ValueError(
                 "IMPUTED_FEATURES contains NaNs in the training set after "
                 "imputation -- this should not happen."
@@ -274,12 +317,12 @@ def main(args):
         if cache_hit:
             model = models[target]
         else:
-            y = train[target].to_numpy(dtype=float)
+            y_general = train.loc[general_mask, target].to_numpy(dtype=float)
 
             if args.optuna_trials > 0:
                 logger.info("[%s] tuning XGBoost with Optuna (%d trials)...", target, args.optuna_trials)
                 xgb_model, study = tune_xgb_with_optuna(
-                    X_train, y, n_trials=args.optuna_trials, random_state=args.seed,
+                    X_train_general, y_general, n_trials=args.optuna_trials, random_state=args.seed,
                     splits=splits,
                 )
                 logger.info("[%s] best CV MAE=%.4f  params=%s", target, study.best_value, study.best_params)
@@ -287,7 +330,7 @@ def main(args):
                 xgb_model = None  # WeightedBlendRegressor falls back to its hardcoded default
 
             model = WeightedBlendRegressor(random_state=args.seed, xgb_model=xgb_model, splits=splits)
-            model.fit(X_train, y)
+            model.fit(X_train_general, y_general)
             models[target] = model
 
         summary = model.get_training_summary()
@@ -298,7 +341,7 @@ def main(args):
         logger.info(
             "[%s] internal OOF (n_validated=%d/%d): R2=%.4f MAE=%.4f RMSE=%.4f",
             target,
-            summary["n_validated"], len(train),
+            summary["n_validated"], n_general,
             summary["blend_oof_metrics"]["r2"],
             summary["blend_oof_metrics"]["mae"],
             summary["blend_oof_metrics"]["rmse"],
@@ -307,14 +350,31 @@ def main(args):
         preds[target] = model.predict(X_test)
 
     # ---------------------------------------------------------------
-    # Group C fine-grained correction, applied to BOTH targets
+    # Group C fine-grained correction, applied to BOTH targets. Trains on
+    # ALL rows (X_train_full etc.) even though the general model above was
+    # only fit on general_mask's rows -- GeneralModelWithHeldOutRows lets
+    # the excluded rows still contribute a (non-leaked) OOF-style prediction
+    # for this stage. With no --exclude_ids, general_mask is all-True and
+    # this is exactly the original single-model behavior.
     # ---------------------------------------------------------------
+    full_set_nmae = {}
     for target in TARGETS:
         if target not in correctors:
-            y_target = train[target].to_numpy(dtype=float)
+            y_target_full = train[target].to_numpy(dtype=float)
             corrector_cls = CORRECTOR_CLASSES[target]
+
+            if args.exclude_ids:
+                excluded_index = X_train_full.index[~general_mask]
+                general_model_for_correction = GeneralModelWithHeldOutRows(
+                    general_model=models[target],
+                    extra_X=X_train_full.loc[excluded_index],
+                    extra_index=excluded_index,
+                )
+            else:
+                general_model_for_correction = models[target]
+
             corrector = corrector_cls(
-                general_model=models[target],
+                general_model=general_model_for_correction,
                 optuna_trials=args.specialist_optuna_trials,
                 random_state=args.seed,
                 stratified_split=True,
@@ -323,7 +383,7 @@ def main(args):
                 val_frac=args.val_frac,
                 folds=args.folds,
             )
-            corrector.fit(X_train, X_train_specialist, y_target, fine_mask_train)
+            corrector.fit(X_train_full, X_train_specialist_full, y_target_full, fine_mask_train_full)
             correctors[target] = corrector
 
         corrector = correctors[target]
@@ -346,6 +406,55 @@ def main(args):
         )
 
         preds[target] = corrector.predict(X_test, X_test_specialist, fine_mask_test)
+
+        # -----------------------------------------------------------
+        # Full-set OOF NMAE: the corrector summary above only scores
+        # fine-grained rows. Reconstruct the actual combined OOF
+        # prediction for every one of the general model's own n_general
+        # rows (general model's OOF for coarse-grained rows, Group C's
+        # corrected OOF for fine-grained rows) so this is comparable,
+        # apples-to-apples, to model1i.py's/model4i.py's full-set NMAE
+        # logged over the same n_general rows (general_mask, id 155
+        # excluded by default).
+        # -----------------------------------------------------------
+        y_general_target = train.loc[general_mask, target].to_numpy(dtype=float)
+        general_oof_df = models[target].get_oof_results(y=y_general_target, index=general_index)
+
+        combined_oof = general_oof_df["blend_oof_prediction"].copy()
+        fine_index = corrector.oof_index_.intersection(general_index)
+        corrected_series = pd.Series(
+            corrector.corrected_oof_prediction_fine_, index=corrector.oof_index_,
+        )
+        combined_oof.loc[fine_index] = corrected_series.loc[fine_index]
+        observed_series = general_oof_df["observed"]
+
+        # Under split_kind=shuffle, coverage is partial -- StratifiedShuffleSplit
+        # draws may not cover every row, so get_oof_results() leaves NaN for
+        # rows no split validated (see its docstring). Score only rows with a
+        # genuine OOF value; split_kind=kfold gives full coverage, so this is
+        # a no-op there.
+        scoreable = combined_oof.notna()
+        combined_oof = combined_oof[scoreable]
+        observed_series = observed_series[scoreable]
+
+        full_r2 = r2_score(observed_series, combined_oof)
+        full_mae = mean_absolute_error(observed_series, combined_oof)
+        full_rmse = mean_squared_error(observed_series, combined_oof) ** 0.5
+        full_nmae = nmae(observed_series.to_numpy(), combined_oof.to_numpy())
+        full_set_nmae[target] = full_nmae
+
+        logger.info(
+            "[%s] FULL-SET OOF incl. Group C correction (n=%d/%d, %d fine-grained rows "
+            "corrected): R2=%.4f MAE=%.4f RMSE=%.4f NMAE=%.6f",
+            target, len(combined_oof), n_general, len(fine_index),
+            full_r2, full_mae, full_rmse, full_nmae,
+        )
+
+    logger.info(
+        "combined full-set OOF NMAE (mean of MDD+OWC, n=%d, matching model1i.py's "
+        "evaluation set): %.6f",
+        n_general, sum(full_set_nmae.values()) / len(full_set_nmae),
+    )
 
     if not cache_hit:
         os.makedirs(os.path.dirname(args.model_out) or ".", exist_ok=True)
@@ -387,13 +496,19 @@ def parse_args():
     repo_root = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
-    p.add_argument("--helpers_dir", default=str(repo_root))
+    p.add_argument("--helpers_dir", default=str(repo_root / "src"))
     p.add_argument("--out", default=str(repo_root / "submissions" / "submission_model2i.csv"))
     p.add_argument("--log", default=str(repo_root / "logs" / "model2i_run.log"))
     p.add_argument("--model_out", default=str(repo_root / "models" / "model2i.joblib"),
                    help="path to cache/load the fitted per-target models + both Group C correctors + MICE imputers")
     p.add_argument("--force_retrain", action="store_true",
                    help="ignore --model_out if it exists and fit fresh anyway")
+    p.add_argument("--exclude_ids", type=int, nargs="*", default=[155],
+                   help="train.csv id values to drop from the GENERAL model's training only -- "
+                        "the Group C correction stage still trains on these rows (see module "
+                        "docstring's --exclude_ids ASYMMETRY section). Defaults to [155] -- see "
+                        "model1i.py's --exclude_ids help for why. Pass --exclude_ids (with no "
+                        "values) to include every row again.")
     p.add_argument("--optuna_trials", type=int, default=50,
                    help="Optuna trials for XGBoost tuning per general-model target (0 to skip tuning)")
     p.add_argument("--specialist_optuna_trials", type=int, default=50,

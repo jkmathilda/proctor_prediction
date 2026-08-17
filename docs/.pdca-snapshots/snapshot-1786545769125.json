@@ -1,0 +1,2217 @@
+{
+  "timestamp": "2026-08-12T14:42:49.124Z",
+  "reason": "compaction",
+  "status": {
+    "version": "2.0",
+    "lastUpdated": "2026-08-12T14:42:49.041Z",
+    "activeFeatures": [
+      "proctor-prediction",
+      "scratchpad",
+      "scripts",
+      "v14",
+      "proctor-prediction-challenge",
+      "claudetest"
+    ],
+    "primaryFeature": "proctor-prediction",
+    "features": {
+      "v14": {
+        "phase": "do",
+        "startedAt": "2026-07-22T00:00:00.000Z",
+        "matchRate": null,
+        "iterationCount": 0,
+        "planDoc": "docs/01-plan/features/v14.plan.md",
+        "designDoc": "docs/02-design/features/v14.design.md",
+        "implementation": "scripts/v14.py",
+        "baselineToBeat": "v5 fixed blend, CV NMAE 0.2410-0.2420",
+        "cvNMAE": {
+          "stage1_ridge_alone": 0.2839,
+          "stage1_2_xgb_residual": 0.2585,
+          "stage1_2_3_bias": 0.2586,
+          "stage1_2_3_scale": 0.2604
+        },
+        "bestConfig": "stage1_2_xgb_residual (Stage 3 does not improve on it, either form)",
+        "submission": "submissions/submission_20260722_v14.csv (kept for reference -- worse than v5, do not submit)",
+        "notes": "Formalizes scripts/model1.py's unimplemented three-stage stub (Ridge -> XGB-on-residuals -> fine/coarse correction) into scripts/v14.py, grounded in data_analysis.ipynb numbers. Found model1.py's docstring misquotes the notebook's OWC linear R2 (claims 0.73, actual 0.30-0.39 with a catastrophic fold at -1.45, likely plain-KFold fold-composition issue v7 already diagnosed). Also recomputed v8-v13's undocumented GPR line from docs/v13_logs/1/gpr_oof_predictions.csv: NMAE ~0.2484, still doesn't beat v5. Design (2026-07-22): resolved plan's open questions -- reuse helper_functions.py's fold-isolated MICE pipeline, v14.py supersedes model1.py, inline v7.py's soil_composition_strata() rather than importing scripts/vN.py files. design-validator review found and fixed one blocking gap (missing run_distribution_diagnostics prerequisite for get_scaler_assignments) plus minor clarifications (Stage 3 scale formula, fine_grained units, headless-matplotlib note). Do phase (2026-07-22): implemented and ran scripts/v14.py end-to-end. Stage 1+2 (Ridge + XGB residual) reaches 0.2585 OOF NMAE, a real improvement over Stage 1 alone (0.2839), confirming the plan's XGBoost-vs-Ridge evidence. Stage 3 does NOT help in either form -- bias: 0.2586 (worse, within noise), scale: 0.2604 (worse) -- documented as a negative result per v2/v7 precedent rather than silently dropped. v14 overall does not beat v5 (0.2410-0.2420); it's the weakest of the documented post-v5 attempts (behind v7's 0.2493 and the recomputed GPR line's ~0.2484). model_description.md updated with a v14 section; scripts/model1.py removed (untracked stub, superseded) per the design's disposition decision."
+      },
+      "proctor-prediction": {
+        "phase": "do",
+        "startedAt": "2026-06-30T10:40:00.000Z",
+        "matchRate": null,
+        "iterationCount": 0,
+        "planDoc": "docs/01-plan/features/proctor-prediction.plan.md",
+        "designDoc": "docs/02-design/features/proctor-prediction.design.md",
+        "implementation": "scripts/v5.ipynb (latest)",
+        "firstSubmission": "submissions/submission_20260630_1254_v1.csv",
+        "cvNMAE": {
+          "ridge_baseline": 0.3347,
+          "xgb_default": 0.2612,
+          "lgb_default": 0.2628,
+          "tuned_xgb": 0.2656,
+          "tuned_lgb": 0.2577,
+          "ensemble_tuned": 0.251,
+          "v5_fixed_blend": 0.242
+        }
+      },
+      "scratchpad": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-06-30T14:28:50.121Z",
+          "lastUpdated": "2026-08-12T13:29:24.759Z"
+        },
+        "lastFile": "/private/tmp/claude-501/-Users-junkyunglee-Codes-Co-op-proctor-prediction-challenge/83295343-78e1-45cd-8028-3d5e98075d32/scratchpad/test_v15_features_v2.py"
+      },
+      "scripts": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-07-06T14:08:48.495Z",
+          "lastUpdated": "2026-08-12T14:21:46.569Z"
+        },
+        "lastFile": "/Users/junkyunglee/Codes/Co-op/proctor-prediction-challenge/scripts/model6i.py"
+      },
+      "proctor-prediction-challenge": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-08-03T15:13:51.626Z",
+          "lastUpdated": "2026-08-10T14:08:28.780Z"
+        },
+        "lastFile": "/Users/junkyunglee/Codes/Co-op/proctor-prediction-challenge/src/mdd_fine_correction.py"
+      },
+      "claudetest": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-08-10T14:22:37.733Z",
+          "lastUpdated": "2026-08-12T14:42:49.041Z"
+        },
+        "lastFile": "/Users/junkyunglee/Codes/Co-op/proctor-prediction-challenge/claudetest/audit_model1i_blend.py"
+      }
+    },
+    "pipeline": {
+      "currentPhase": 3,
+      "level": "Dynamic",
+      "phaseHistory": [
+        "plan",
+        "design",
+        "do"
+      ]
+    },
+    "session": {
+      "startedAt": "2026-06-30T10:38:37.845Z",
+      "onboardingCompleted": true,
+      "lastActivity": "2026-08-12T14:42:49.041Z"
+    },
+    "history": [
+      {
+        "event": "plan_created",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-06-30T10:40:00.000Z"
+      },
+      {
+        "event": "design_created",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-06-30T10:45:00.000Z"
+      },
+      {
+        "event": "do_completed",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-06-30T12:55:00.000Z",
+        "notes": "solution.ipynb built, first submission generated, CV NMAE 0.2510 (ensemble)"
+      },
+      {
+        "timestamp": "2026-06-30T14:28:50.121Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "event": "plan_updated",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-07-02T00:00:00.000Z",
+        "notes": "Added v5 plan section (SINDy sparse symbolic feature discovery + SHAP-guided refinement + GBM/PINN stacked ensemble). Target: beat v1's 0.2431 CV NMAE."
+      },
+      {
+        "timestamp": "2026-07-02T09:14:15.189Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:15:59.914Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:16:10.295Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:17:07.972Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:17:42.615Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:18:20.350Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:19:54.096Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:39:08.269Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:39:42.549Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-02T09:43:51.855Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "event": "do_completed",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-07-02T12:00:00.000Z",
+        "notes": "v5 implemented per plan §11: SINDy sparse symbolic feature discovery + SHAP-guided refinement (redundant PSD pairs dropped, top interaction pairs materialized) + Optuna-tuned XGBoost/LightGBM + PINN diversity model, combined via CV-optimized fixed blend (0.8 GBM + 0.2 PINN). CV NMAE 0.2410, new best (beats v1's 0.2431). Submission: submissions/submission_20260702_1200_v5.csv."
+      },
+      {
+        "event": "do_updated",
+        "feature": "proctor-prediction",
+        "timestamp": "2026-07-02T15:15:00.000Z",
+        "notes": "v5 updated to reuse helper_functions.py (calc_satline for the ZAV saturation formula, get_missing_data_report for EDA) per user request -- light integration, kept the validated median-imputation/SINDy/SHAP/Optuna pipeline unchanged. Re-ran end-to-end: CV NMAE 0.2420 (0.2410-0.2420 across runs due to Optuna's unseeded sampler), still beats v1's 0.2431. LightGBM selected as primary this run. Submission: submissions/submission_20260702_1515_v5.csv."
+      },
+      {
+        "timestamp": "2026-07-06T14:08:48.495Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:10:02.743Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:10:39.849Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:22:28.203Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:23:17.211Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:23:29.807Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:23:46.884Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:24:15.801Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:24:29.169Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:24:41.011Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-06T14:25:04.083Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-15T14:10:06.038Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-15T14:11:29.042Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-15T14:14:04.472Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "event": "plan_created",
+        "feature": "v14",
+        "timestamp": "2026-07-22T00:00:00.000Z",
+        "notes": "Plan created at docs/01-plan/features/v14.plan.md: formalizes scripts/model1.py's three-stage stub (Ridge -> XGB residual -> fine/coarse correction) into scripts/v14.py, with data_analysis.ipynb numbers fact-checked against model1.py's docstring claims (OWC linear R2 discrepancy found) and v8-v13's undocumented GPR line recomputed (~0.2484, still behind v5's 0.2410-0.2420)."
+      },
+      {
+        "event": "design_created",
+        "feature": "v14",
+        "timestamp": "2026-07-22T00:00:01.000Z",
+        "notes": "Design created at docs/02-design/features/v14.design.md: resolved plan's open questions (helper_functions.py MICE pipeline over notebook's drop-column approach; v14.py supersedes model1.py; inline soil_composition_strata rather than importing scripts/vN.py). Specified Stage 1 Ridge scaling/RidgeCV alpha sweep, Stage 2 XGBoost starting hyperparams, Stage 3 bias-only default with group-size gate, ablation evaluation harness (fixed global IQR, avoiding v6's known per-fold-IQR bug), and CLI/file structure using relative paths (flagging v10.py/v13.py's hardcoded-absolute-path portability bug to avoid repeating)."
+      },
+      {
+        "timestamp": "2026-07-22T09:57:42.823Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-22T09:57:50.777Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-22T12:27:15.504Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-22T14:15:40.499Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-22T14:17:40.520Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-22T14:17:47.860Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-23T09:03:35.450Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-23T09:14:46.600Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T12:35:20.966Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T12:36:11.759Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T12:42:48.065Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:09:34.968Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:09:46.829Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:09:54.697Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:17:43.610Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:19:19.881Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:19:48.876Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:24:23.505Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:42:22.688Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:42:29.053Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:42:35.695Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:42:48.340Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:43:15.117Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-27T13:52:55.243Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-28T23:27:41.298Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-29T09:08:39.931Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-29T09:08:49.925Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-29T15:57:09.057Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-29T16:03:42.390Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-29T18:06:18.254Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T06:08:01.070Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T06:08:29.352Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T06:17:34.488Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T06:18:35.695Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T06:28:24.836Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:18:20.291Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:19:49.217Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:20:19.401Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:20:55.587Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:21:09.843Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:22:51.537Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:23:49.370Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:28:45.340Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:29:21.140Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:31:02.699Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:43:15.350Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:48:21.169Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:55:57.224Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:58:03.893Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T08:58:12.479Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T10:55:05.376Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T12:46:44.231Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:07:05.593Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:15:47.336Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:16:35.059Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:26:07.446Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:35:10.750Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:38:09.939Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-07-30T14:40:23.290Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:06:45.616Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:06:56.508Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:13:51.626Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:17:04.145Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:23:24.084Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:23:28.507Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:23:36.133Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:23:42.260Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:23:57.447Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:24:16.611Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:24:26.862Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T15:24:33.488Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T16:24:05.784Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T16:58:51.060Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T17:14:55.618Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T17:15:05.496Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T17:36:54.702Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:09:36.867Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:10:25.024Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:10:51.285Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:12:51.594Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:13:03.349Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:39:12.573Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:39:53.729Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:40:49.759Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:41:00.081Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:41:20.977Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:41:38.500Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-03T18:41:43.388Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:41:14.930Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:41:44.294Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:42:04.320Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:42:14.926Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:42:37.929Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:42:59.579Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:43:15.526Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:43:27.573Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:43:37.664Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:56:47.180Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T07:57:33.926Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:03:12.580Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:06:18.757Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:06:23.787Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:06:38.349Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:06:53.597Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:07:03.079Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:08:53.969Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:21:39.202Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:22:29.308Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:22:41.100Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:23:30.573Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:23:52.264Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:24:07.765Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:26:20.793Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:26:38.825Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:26:49.444Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:27:35.233Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:40:55.278Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:41:43.449Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:42:39.510Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:43:03.724Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:43:24.377Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:47:16.604Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:47:46.509Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:47:52.270Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:48:00.839Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:48:11.198Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:48:24.579Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T08:48:32.743Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:01:27.413Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:01:41.301Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:01:56.295Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:02:11.164Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:02:31.157Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:02:39.905Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:03:02.685Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:03:12.161Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:03:40.930Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:03:49.113Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:04:02.225Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:04:12.687Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T09:04:22.886Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T12:48:56.136Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T12:49:06.085Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T12:49:18.560Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T12:50:23.890Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:09:31.511Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:10:04.469Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:10:31.363Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:10:53.742Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:11:10.625Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:21:05.511Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:21:24.390Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:21:33.811Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:22:49.775Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:23:02.883Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T13:23:10.335Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:01:47.196Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:05.017Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:15.277Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:28.579Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:35.125Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:48.244Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:02:59.556Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:03:05.776Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:03:20.688Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:03:29.968Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:03:34.923Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:03:42.061Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:15:46.563Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:17:14.462Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:20:36.044Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-04T14:35:49.491Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T08:46:28.061Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T09:07:08.509Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T09:07:42.724Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T09:29:29.839Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T09:30:16.040Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:27:28.480Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:36:35.942Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:36:41.131Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:36:45.999Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:41:45.872Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:46:36.933Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T13:46:51.720Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:01:15.527Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:01:39.787Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:03:31.433Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:03:46.762Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:31:09.704Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:31:27.796Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:46:38.044Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:46:57.425Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-05T14:47:04.009Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:22:19.075Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:22:26.295Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:22:49.039Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:31:35.882Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:34:09.325Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:34:22.224Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:58:19.239Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T09:59:24.250Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:20:22.261Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:23:10.609Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:23:21.125Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:23:28.499Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:23:34.216Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:23:39.743Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:52:17.871Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T10:52:29.801Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T11:00:09.558Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:33:16.644Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:33:45.291Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:34:08.895Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:46:52.788Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:04.024Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:08.550Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:12.631Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:32.705Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:50.130Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:51.251Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:47:57.356Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:48:02.105Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:48:02.287Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:48:16.449Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:48:44.903Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T13:54:02.466Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:01:45.618Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:01:55.257Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:02:05.542Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:02:08.863Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:02:12.369Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:02:15.950Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:08:28.780Z",
+        "feature": "proctor-prediction-challenge",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:09:02.496Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:09:07.735Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:09:18.960Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:11:22.360Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:16:16.295Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:22:37.733Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:23:59.002Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:24:50.725Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:25:24.521Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:25:47.364Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:25:59.830Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:26:25.226Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:26:33.166Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:26:59.692Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:30:39.712Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-10T14:30:48.073Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T13:53:38.233Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T13:56:43.710Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:02:24.310Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:03:28.483Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:03:47.515Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:04:07.574Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:04:14.115Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:16:53.153Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:19:15.189Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T14:29:42.155Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T17:45:47.227Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-11T17:45:54.955Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T08:58:27.805Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:01:47.981Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:02:51.911Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:13:04.962Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:13:10.187Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:33:11.609Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:33:21.059Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:33:44.753Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:42:46.396Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:48:32.502Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:48:38.600Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:51:18.336Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T09:57:11.329Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:05:25.306Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:05:33.829Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:05:42.025Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:05:51.239Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:06:08.088Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:12:13.199Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:44:28.692Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:45:35.810Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:46:04.493Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:47:28.563Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:48:12.157Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:48:17.830Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:48:59.809Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:49:07.927Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:52:04.691Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:52:58.666Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T10:58:29.011Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:06:59.909Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:07:52.833Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:12:07.098Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:12:38.435Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:17:18.319Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:17:38.833Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:25:34.499Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:28:24.382Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:28:42.158Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:29:08.272Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:29:24.759Z",
+        "feature": "scratchpad",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:35:30.573Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:36:30.943Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T13:36:54.064Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:16:05.262Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:21:46.569Z",
+        "feature": "scripts",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:22:41.373Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:23:00.272Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:33:33.421Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:33:44.901Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:35:47.903Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:41:37.254Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:42:05.362Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:42:18.100Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-08-12T14:42:49.041Z",
+        "feature": "claudetest",
+        "phase": "do",
+        "action": "updated"
+      }
+    ]
+  }
+}

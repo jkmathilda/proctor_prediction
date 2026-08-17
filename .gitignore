@@ -223,3 +223,5 @@ docs/.bkit-memory.json
 docs/.pdca-status.json
 .DS_Store
 
+models/v15test.pt
+models/v15_excl155.pt

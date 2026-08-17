@@ -22,9 +22,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize, minimize_scalar
 
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.exceptions import NotFittedError
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import KFold, cross_val_predict
@@ -128,6 +129,71 @@ def add_group_c_features(
     return df_out, fine_imputer, coarse_imputer
 
 
+def _gpr_mean_std(model: Any, X: Any) -> tuple[np.ndarray, np.ndarray]:
+    """(mean, std) from a fitted GPR-like model -- handles both a raw
+    GaussianProcessRegressor (model.predict(X, return_std=True) works
+    directly) and general_model_impute.make_default_gpr_model()'s
+    TransformedTargetRegressor(Pipeline(StandardScaler, GPR),
+    transformer=StandardScaler()) wrapper, whose predict() doesn't forward
+    return_std to the underlying GPR (raises AttributeError on the (mean,
+    std) tuple it gets back instead). For that wrapper, replicates it by
+    hand: scale X through the pipeline's pre-GPR steps, call the fitted GPR
+    directly, then inverse-transform the mean AND scale the std by the
+    y-transformer's `scale_` -- StandardScaler's inverse_transform is affine
+    (y = y_std * scale + mean), and std only needs the linear (scale) part,
+    not the additive mean shift."""
+    if isinstance(model, TransformedTargetRegressor):
+        pipeline = model.regressor_
+        gpr = pipeline.steps[-1][1]
+        X_pre = pipeline[:-1].transform(X) if len(pipeline.steps) > 1 else X
+        mean_t, std_t = gpr.predict(X_pre, return_std=True)
+        mean = model.transformer_.inverse_transform(
+            np.asarray(mean_t).reshape(-1, 1)
+        ).ravel()
+        std = np.asarray(std_t) * float(np.asarray(model.transformer_.scale_).reshape(-1)[0])
+        return mean, std
+    return model.predict(X, return_std=True)
+
+
+def _oof_gpr_std_from_splits(
+    gpr_template: Any,
+    X: Any,
+    y: Any,
+    splits: list[tuple[np.ndarray, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    _oof_predict_from_splits' counterpart for predictive std: refits a fresh
+    clone of `gpr_template` per split (same accumulate-then-average pattern
+    for rows that land in more than one split's validation set) and returns
+    each row's out-of-fold GPR standard deviation (`return_std=True`)
+    instead of its mean prediction. Used only by per_sample_beta=True -- the
+    scalar-beta path never needs this.
+    """
+    is_frame = isinstance(X, pd.DataFrame)
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+    n = len(y_arr)
+    std_sum = np.zeros(n)
+    cnt = np.zeros(n)
+
+    X_arr = X if is_frame else np.asarray(X, dtype=float)
+
+    for tr, va in splits:
+        model = clone(gpr_template)
+        if is_frame:
+            model.fit(X_arr.iloc[tr], y_arr[tr])
+            _, std = _gpr_mean_std(model, X_arr.iloc[va])
+        else:
+            model.fit(X_arr[tr], y_arr[tr])
+            _, std = _gpr_mean_std(model, X_arr[va])
+        std_sum[va] += np.asarray(std, dtype=float)
+        cnt[va] += 1
+
+    validated = cnt > 0
+    std_oof = np.zeros(n)
+    std_oof[validated] = std_sum[validated] / cnt[validated]
+    return std_oof, validated
+
+
 def make_default_specialist_xgb(random_state: int = 42) -> XGBRegressor:
     """data_analysis.ipynb's evaluate_specialist() model (cell 135), unchanged."""
     return XGBRegressor(
@@ -176,6 +242,29 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
     beta is fit by bounded scalar optimization (0 <= beta <= 1.5) minimizing
     MSE against observed MDD on fine-grained rows -- data_analysis.ipynb's
     evaluate_specialist() procedure, unchanged.
+
+    per_sample_beta (default False) replaces that single global beta with a
+    per-row beta_i driven by the GPR half's own predictive uncertainty --
+    the specialist's "confidence" at that specific sample, not a single
+    strength applied uniformly to every fine-grained row:
+
+        confidence_i = clip(1 - (gpr_std_i - std_lo) / (std_hi - std_lo), 0, 1)
+        beta_i       = beta_lo_conf + (beta_hi_conf - beta_lo_conf) * confidence_i
+
+    std_lo/std_hi are the 10th/90th percentile of the GPR's own out-of-fold
+    predictive std (computed the same fold-honest way general/beta OOF
+    predictions already are -- a fresh GPR clone per fold, std on the held-out
+    rows only), so a row's confidence is judged relative to how uncertain this
+    specialist typically is on *unseen* fine-grained rows, not against its
+    in-sample std (which would be optimistic). beta_lo_conf/beta_hi_conf are fit
+    jointly (scipy.optimize.minimize, L-BFGS-B, same bounds as beta_bounds)
+    to minimize OOF MSE, initialized at the scalar-optimal beta_ so the
+    2-parameter search can never do worse than plain model2i.py's single beta
+    -- if per-sample confidence doesn't actually help, the optimizer is free
+    to collapse beta_lo_conf ~= beta_hi_conf ~= beta_, recovering the original
+    behavior. Low-confidence (high predictive std) rows lean toward
+    beta_lo_conf -- more general-model, less specialist; high-confidence rows
+    lean toward beta_hi_conf.
 
     Parameters
     ----------
@@ -259,6 +348,11 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
     val_frac:
         Only used when stratified_split=True and split_kind="shuffle" --
         test_size passed to make_stratified_shuffle_splits.
+
+    per_sample_beta:
+        False (default, model2i.py's behavior, unchanged): a single global
+        beta_. True: per-row beta_i driven by the GPR residual model's own
+        out-of-fold predictive uncertainty -- see class docstring above.
     """
 
     def __init__(
@@ -275,6 +369,7 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         folds: int = 5,
         split_kind: str = "kfold",
         val_frac: float = 0.2,
+        per_sample_beta: bool = False,
     ) -> None:
         self.general_model = general_model
         self.xgb_model = xgb_model
@@ -288,6 +383,7 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         self.folds = folds
         self.split_kind = split_kind
         self.val_frac = val_frac
+        self.per_sample_beta = per_sample_beta
 
     def _get_gpr(self, n_features: int) -> Any:
         if self.gpr_model is None:
@@ -526,7 +622,54 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         self.gpr_residual_model_ = clone(gpr_template)
         self.gpr_residual_model_.fit(X_fit, y_fit)
 
-        corrected_oof_v = general_prediction_fine_v + self.beta_ * residual_oof_v
+        if self.per_sample_beta:
+            # -------------------------------------------------------
+            # Per-row beta_i, driven by the GPR half's own out-of-fold
+            # predictive std (its "confidence" at this exact sample) --
+            # see class docstring. Reuses the same splits already drawn
+            # above for the mean-prediction OOF, so this is honest: every
+            # std comes from a GPR clone that never saw that row's label.
+            # -------------------------------------------------------
+            std_splits = splits if self.stratified_split else list(self._make_cv().split(X_fit))
+            gpr_std_oof, std_validated = _oof_gpr_std_from_splits(gpr_template, X_fit, y_fit, std_splits)
+            gpr_std_oof_v = gpr_std_oof[validated_within_fit & std_validated]
+            # in case std_validated differs from validated_within_fit (shouldn't,
+            # both come from the same/equivalent fold partition, but guard anyway)
+            conf_mask = (validated_within_fit & std_validated)[validated_within_fit]
+
+            self.std_lo_ = float(np.percentile(gpr_std_oof_v, 10))
+            self.std_hi_ = float(np.percentile(gpr_std_oof_v, 90))
+
+            residual_oof_c = residual_oof_v[conf_mask]
+            general_prediction_fine_c = general_prediction_fine_v[conf_mask]
+            observed_fine_c = observed_fine_v[conf_mask]
+            conf_v = self._confidence(gpr_std_oof_v)
+
+            def per_sample_objective(params: np.ndarray) -> float:
+                beta_lo_conf, beta_hi_conf = params
+                beta_i = beta_lo_conf + (beta_hi_conf - beta_lo_conf) * conf_v
+                corrected = general_prediction_fine_c + beta_i * residual_oof_c
+                return mean_squared_error(observed_fine_c, corrected)
+
+            opt2 = minimize(
+                per_sample_objective, x0=[self.beta_, self.beta_],
+                bounds=[self.beta_bounds, self.beta_bounds], method="L-BFGS-B",
+            )
+            self.beta_lo_conf_, self.beta_hi_conf_ = (float(v) for v in opt2.x)
+            self.mean_beta_i_ = float(np.mean(
+                self.beta_lo_conf_ + (self.beta_hi_conf_ - self.beta_lo_conf_) * conf_v
+            ))
+
+            # corrected_oof_v below must line up with residual_oof_v/
+            # general_prediction_fine_v/observed_fine_v (full validated_within_fit
+            # length) for the rest of fit() -- rebuild beta_i over that full mask,
+            # falling back to beta_ (scalar) for any row std OOF couldn't cover.
+            conf_full = np.full(len(residual_oof_v), 0.5)
+            conf_full[conf_mask] = conf_v
+            beta_i_full = self.beta_lo_conf_ + (self.beta_hi_conf_ - self.beta_lo_conf_) * conf_full
+            corrected_oof_v = general_prediction_fine_v + beta_i_full * residual_oof_v
+        else:
+            corrected_oof_v = general_prediction_fine_v + self.beta_ * residual_oof_v
 
         self.residual_oof_r2_ = r2_score(y_fit_v, residual_oof_v)
         self.general_oof_r2_ = r2_score(observed_fine_v, general_prediction_fine_v)
@@ -535,6 +678,16 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         self.corrected_oof_rmse_ = mean_squared_error(observed_fine_v, corrected_oof_v) ** 0.5
         self.n_fine_ = int(fine_mask.sum())
         self.n_validated_ = int(validated_within_fit.sum())
+
+        # Per-row OOF index + values (not just the scalar metrics above) --
+        # lets a caller (e.g. a full-dataset OOF NMAE check spanning both
+        # fine- and coarse-grained rows) reconstruct the exact corrected
+        # out-of-fold prediction this fit() used to pick beta_, instead of
+        # calling predict() and getting a same-data-refit (leaked) number.
+        self.oof_index_ = X_fit.index[validated_within_fit]
+        self.general_oof_prediction_fine_ = general_prediction_fine_v
+        self.corrected_oof_prediction_fine_ = corrected_oof_v
+        self.observed_oof_fine_ = observed_fine_v
 
         self.is_fitted_ = True
 
@@ -545,6 +698,29 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
         xgb_pred = self.xgb_residual_model_.predict(X_specialist_fine)
         gpr_pred = self.gpr_residual_model_.predict(X_specialist_fine)
         return self.ensemble_weight_ * xgb_pred + (1.0 - self.ensemble_weight_) * gpr_pred
+
+    def _confidence(self, std: np.ndarray) -> np.ndarray:
+        """Map GPR predictive std -> confidence in [0, 1] via the fitted
+        std_lo_/std_hi_ (10th/90th percentile of this specialist's own OOF
+        std) -- low std (confident) -> 1, high std (unconfident) -> 0,
+        clipped at both ends so a test-time std outside the training OOF
+        range still yields a valid confidence instead of extrapolating."""
+        std = np.asarray(std, dtype=float)
+        lo, hi = self.std_lo_, self.std_hi_
+        if hi <= lo:
+            return np.full_like(std, 0.5)
+        return np.clip(1.0 - (std - lo) / (hi - lo), 0.0, 1.0)
+
+    def _predict_residual_and_confidence(
+        self, X_specialist_fine: pd.DataFrame,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """per_sample_beta=True predict-time counterpart to _predict_residual:
+        the same ensemble residual value, plus this row's confidence from the
+        GPR half's own predictive std."""
+        xgb_pred = self.xgb_residual_model_.predict(X_specialist_fine)
+        gpr_pred, gpr_std = _gpr_mean_std(self.gpr_residual_model_, X_specialist_fine)
+        residual = self.ensemble_weight_ * xgb_pred + (1.0 - self.ensemble_weight_) * gpr_pred
+        return residual, self._confidence(gpr_std)
 
     def predict(
         self,
@@ -580,14 +756,25 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
             specialist_fine.insert(
                 0, "blend_oof_prediction", general_prediction[fine_mask]
             )
+            X_res = specialist_fine[SPECIALIST_FEATURES_C]
 
-            residual_prediction = self._predict_residual(
-                specialist_fine[SPECIALIST_FEATURES_C]
-            )
-
-            corrected_prediction[fine_mask] = (
-                general_prediction[fine_mask] + self.beta_ * residual_prediction
-            )
+            # getattr, not self.per_sample_beta: a corrector unpickled from a
+            # cache saved before this attribute existed (e.g. an old
+            # model2i.joblib) has no per_sample_beta in its restored
+            # __dict__ -- __init__ never reruns on unpickling. Such an
+            # object was always fit in scalar-beta mode, so False is the
+            # correct fallback, not a guess.
+            if getattr(self, "per_sample_beta", False):
+                residual_prediction, confidence = self._predict_residual_and_confidence(X_res)
+                beta_i = self.beta_lo_conf_ + (self.beta_hi_conf_ - self.beta_lo_conf_) * confidence
+                corrected_prediction[fine_mask] = (
+                    general_prediction[fine_mask] + beta_i * residual_prediction
+                )
+            else:
+                residual_prediction = self._predict_residual(X_res)
+                corrected_prediction[fine_mask] = (
+                    general_prediction[fine_mask] + self.beta_ * residual_prediction
+                )
 
         return corrected_prediction
 
@@ -597,8 +784,9 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
                 f"{type(self).__name__} must be fitted before calling get_training_summary."
             )
 
+        per_sample_beta = getattr(self, "per_sample_beta", False)
         summary = {
-            "beta": self.beta_,
+            "beta": self.mean_beta_i_ if per_sample_beta else self.beta_,
             "n_fine_grained": self.n_fine_,
             "n_usable": self.n_usable_,
             "n_validated": self.n_validated_,
@@ -610,7 +798,15 @@ class MDDFineGrainedResidualCorrector(BaseEstimator, RegressorMixin):
             "corrected_oof_r2": self.corrected_oof_r2_,
             "general_oof_rmse": self.general_oof_rmse_,
             "corrected_oof_rmse": self.corrected_oof_rmse_,
+            "per_sample_beta": per_sample_beta,
         }
+
+        if per_sample_beta:
+            summary["beta_lo_conf"] = self.beta_lo_conf_
+            summary["beta_hi_conf"] = self.beta_hi_conf_
+            summary["beta_scalar_baseline"] = self.beta_
+            summary["gpr_std_lo"] = self.std_lo_
+            summary["gpr_std_hi"] = self.std_hi_
 
         if self.optuna_study_ is not None:
             summary["optuna_best_params"] = self.optuna_study_.best_params

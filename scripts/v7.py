@@ -8,7 +8,7 @@ feature engineering -> K-fold CV -> registry-based ensemble) with two
 additions, per docs/01-plan/features/proctor-prediction.plan.md §12 and
 docs/02-design/features/proctor-prediction.design.md §11:
 
-1. ``fine_grained`` flag (psd_fraction_clay + psd_fraction_silt > 12) -- the
+1. ``fine_grained`` flag (psd_fraction_clay + psd_fraction_silt > 15) -- the
    one genuinely new column from the requested clay/silt/sand/gravel/
    fine-grained/ip set. The other five already exist verbatim in
    helper_functions.py as psd_fraction_clay/silt/sand/gravel and
@@ -133,7 +133,7 @@ def add_fine_grained_flag(df):
     else (clay/silt/sand/gravel/ip) already exists as psd_fraction_clay/silt/
     sand/gravel and atterberg_plasticity_index via helper_functions.py."""
     df["fine_grained"] = (
-        (df["psd_fraction_clay"] + df["psd_fraction_silt"]) > 12
+        (df["psd_fraction_clay"] + df["psd_fraction_silt"]) > 15
     ).astype(int)
     return df
 

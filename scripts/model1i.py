@@ -29,6 +29,11 @@ The physics guardrail from v10-v16/model1.py is kept: predicted OWC is
 clipped to >= 0, and predicted MDD is clipped to the Zero-Air-Voids
 (saturation) line.
 
+A post-hoc OWC isotonic calibration step was tried and removed: honest
+nested-CV showed a small internal NMAE gain, but it scored worse than this
+uncalibrated version on Kaggle (see docs / conversation history). This
+file is what was previously kept separately as model1i_precalibration.py.
+
 The fitted per-target models AND the fitted fine/coarse MICE imputers are
 cached to --model_out via joblib -- reused on a later run instead of
 retuning/refitting/re-imputing, unless --force_retrain is passed.
@@ -49,7 +54,6 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.general_model_impute import (
@@ -111,6 +115,14 @@ def main(args):
     train = pd.read_csv(os.path.join(args.data_dir, "train.csv"))
     test = pd.read_csv(os.path.join(args.data_dir, "test.csv"))
     logger.info("train shape=%s  test shape=%s", train.shape, test.shape)
+
+    if args.exclude_ids:
+        before = len(train)
+        train = train[~train["id"].isin(args.exclude_ids)].reset_index(drop=True)
+        logger.info(
+            "excluded ids=%s from training: %d -> %d rows",
+            args.exclude_ids, before, len(train),
+        )
 
     train = add_no_missing_features(train)
     test = add_no_missing_features(test)
@@ -277,13 +289,14 @@ def parse_args():
     repo_root = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default=str(repo_root / "data"))
-    p.add_argument("--helpers_dir", default=str(repo_root))
+    p.add_argument("--helpers_dir", default=str(repo_root / "src"))
     p.add_argument("--out", default=str(repo_root / "submissions" / "submission_model1i.csv"))
     p.add_argument("--log", default=str(repo_root / "logs" / "model1i_run.log"))
     p.add_argument("--model_out", default=str(repo_root / "models" / "model1i.joblib"),
                    help="path to cache/load the fitted per-target models + MICE imputers")
     p.add_argument("--force_retrain", action="store_true",
                    help="ignore --model_out if it exists and fit fresh anyway")
+    p.add_argument("--exclude_ids", type=int, nargs="*", default=[155])
     p.add_argument("--optuna_trials", type=int, default=50,
                    help="Optuna trials for XGBoost tuning per target (0 to skip tuning)")
     p.add_argument("--split_kind", choices=["kfold", "shuffle"], default="kfold",

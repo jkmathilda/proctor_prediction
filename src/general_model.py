@@ -97,7 +97,7 @@ def add_no_missing_features(df: pd.DataFrame) -> pd.DataFrame:
     df["silt"] = df["psd_passing_at_0_063mm_pct"] - df["psd_passing_at_0_002mm_pct"]
     df["sand"] = df["psd_passing_at_2mm_pct"] - df["psd_passing_at_0_063mm_pct"]
     df["gravel"] = 100 - df["psd_passing_at_2mm_pct"]
-    df["fine-grained"] = df["clay"] + df["silt"] > 12
+    df["fine-grained"] = df["clay"] + df["silt"] > 15
     df["feat_cu"] = (
         df["psd_size_at_d60_mm"].replace(0, np.nan)
         / df["psd_size_at_d10_mm"].replace(0, np.nan)
