@@ -1,59 +1,144 @@
-# LEIGS2026: Proctor Prediction Challenge
-Welcome to the official "Proctor Prediction Challenge" as part of the 2nd Leipzig Geotechnical Symposium (LeiGS 2026)!
-Digitalization is transforming geotechnical engineering at a rapid pace. To make optimal use of growing data volumes, the ability to combine modern data science methods with profound geotechnical expertise is more in demand today than ever before. Our challenge sits exactly at this intersection.
-We are providing all participants with an exclusive dataset from the soil mechanics research laboratory of HTWK Leipzig.
+# Proctor Prediction Challenge — LeiGS 2026
 
-## Task
-Your task, either alone or in a team, is to develop a statistical model (e.g., based on Machine Learning). Based on classic soil properties (such as grain size distributions, consistency limits, etc.), this model should predict the compaction behavior of various soils in the Proctor test as accurately as possible.
-Follow the Live Leaderboard in real-time to see how accurate your predictions are compared to the rest of the participants.
+Our submission for the "Proctor Prediction Challenge," part of the 2nd Leipzig Geotechnical Symposium
+(LeiGS 2026), hosted on Kaggle. The challenge provides an exclusive dataset from the soil mechanics
+research laboratory of HTWK Leipzig and asks participants to predict Proctor compaction behavior from
+classic soil classification properties.
 
-## The Ultimate Test
-The true challenge comes at the end of the competition: The winning model will be evaluated on a separate, previously completely unknown test dataset. The winner is not the approach that best reproduces the known data (overfitting), but rather the model that demonstrates the highest generalization ability and precision on entirely new soil samples—just like in geotechnical engineering practice.
+---
+
+## Contents
+
+- [Objective](#objective)
+- [Results](#results)
+- [Repository Structure](#repository-structure)
+- [Setup](#setup)
+- [Reproducing the Final Submissions](#reproducing-the-final-submissions)
+- [Data](#data)
+- [Further Reading](#further-reading)
+
+---
 
 ## Objective
-The goal of the Challenge is to predict the maximum dry density ρPr and the corresponding optimum water content wopt from classification properties of the same soil sample. It is known that there is a strong correlation between the compaction parameters (ρPr, wopt) and the classification properties of soils determined in the laboratory. Parameters derived from the grain size distribution and the consistency limits are particularly relevant predictors. In geotechnical literature, numerous empirical formulations exist, but these are based on very different soil groups and test boundary conditions.
 
-The task of this competition is to build a robust, data-driven bridge between the classifying parameters and the actual compaction parameters for fine-grained, mixed-grained, as well as coarse-grained soils.
+Predict the two Proctor compaction targets for each soil sample from its classification properties
+(grain-size distribution, consistency limits, hydraulic conductivity, loss on ignition, etc.):
 
-For this purpose, we are providing a dataset. This dataset should be used to develop a modeling approach that provides precise estimates for the following target variables:
+- **`proctor_mdd_g_cm3`** — maximum dry density, ρPr (g/cm³)
+- **`proctor_owc_pct`** — optimum water content, wopt (%)
 
-Proctor density (maximum dry density): ρPr
-Optimum water content: wopt
+A strong correlation is known to exist between these compaction parameters and a soil's classification
+properties — grain-size distribution and consistency limits (Atterberg limits) in particular — but existing
+empirical formulations from the geotechnical literature are fit to narrow, specific soil groups. The goal
+here is a single, robust, data-driven model that bridges classification properties to compaction parameters
+across fine-grained, mixed-grained, **and** coarse-grained soils.
 
-<img width="500" height="500" alt="Image" src="https://github.com/user-attachments/assets/158f0168-922e-4f70-8311-446b5d4d69d1" align='center'/>
-<p align="center"><b>Figure 1.</b> Proctor curve based on 5 individual tests under varying water content with constant compaction energy. A polynomial function is used as a fitting function to determine the maximum dry density ρPr and the associated optimum water content wopt.</p>
+**Metric**: NMAE = 0.5 × (MAE<sub>MDD</sub> / IQR<sub>MDD</sub>) + 0.5 × (MAE<sub>OWC</sub> / IQR<sub>OWC</sub>),
+lower is better. Scored on Kaggle in two stages — a public leaderboard (15% of the held-out data, visible
+during the competition) and a private leaderboard (the remaining 15%, revealed only at the end) — so the
+real test is generalization to soil samples the model never saw, not just fitting the known data.
 
-<img width="480" height="320" alt="Image" src="https://github.com/user-attachments/assets/8b06e853-b620-4ce4-8b99-92afab2f0283" align='center' />
-<img width="480" height="320" alt="Image" src="https://github.com/user-attachments/assets/f838887a-22ff-4d3d-b171-35f83d594913" align='center' />
-<p align="center"><b>Figure 2.</b> The grain size distribution (left) describes the composition of soils according to the percentage mass fractions per grain size. Soils with predominantly fine-grained components can be described in terms of their plasticity using consistency limits (right). Both tests provide fundamental insights into compactability.</p>
+---
 
-<img width="440" height="300" alt="Image" src="https://github.com/user-attachments/assets/49d4a3cf-5624-49eb-ad1b-1ff52fa7d0e5" align='center' />
-<p align="center"><b>Figure 3.</b> Influence of loss on ignition on the location of the Proctor optimum.</p>
+## Results
 
-### Process Information
-The developed model must meet the requirements for generalizability and robustness. To develop a model and have it evaluated in the context of the competition, it is best to follow these steps:
-Data Exploration: Familiarize yourself with the data using the accompanying Dataset Description. Also, check the "Tutorials & Hints" section further down this page for a deeper understanding (videos of the test procedures, literature references, and a virtual lab tour).
-Baseline Modeling: Follow the steps in the Python Getting Started Notebook. This will allow you to develop a first functioning model based on the training dataset in just a few minutes, perform an internal validation, and generate initial predictions for the test dataset.
+Two architecturally distinct models were submitted as our final entries. Every other model we tried —
+over 30 of them, spanning PINNs, Gaussian Processes, gradient-boosted trees, residual-correction stages,
+blends, and pretrained tabular foundation models — either lost to one of these two on the real leaderboard
+or was never trusted enough to submit. See **[`model_description.md`](model_description.md)** for the full
+model-by-model comparison table and long-form writeups, and **[`docs/260804.md`](docs/260804.md)** for the
+underlying experimental trail (internal-vs-Kaggle reconciliation, outlier analysis, seed-sensitivity checks).
 
-Submission File Format
-Submissions must be made as a CSV file. It must have a header row, and the id column must exactly match the row IDs of the test.csv file. A template is available for download in the Data Explorer.
+| Submission | Approach | Kaggle Score (NMAE) |
+|---|---|---|
+| **v15** (100-seed mean) | ARD-kernel Gaussian Process + HistGradientBoostingRegressor blend on MICE-imputed engineered features | **0.2439** |
+| **model1i** (precalibration) | Ridge + GPR + XGBoost blend on MICE-imputed features, fine/coarse-split imputation, id-155 outlier excluded | **0.2465** |
+
+Both scores are the *honest* estimate for each model — not a lucky single-seed draw. A single-seed run of
+v15 scored 0.2383 and is often quoted informally as "the best score," but a 100-seed sweep showed that
+number was favorable variance, not a stable estimate of the architecture's real strength (see
+`model_description.md`'s Final Submissions section for the full de-lucking analysis).
+
+---
+
+## Repository Structure
 
 ```
-id,proctor_owc_pct,proctor_mdd_g_cm3
-201,10.09,1.972
-202,11.25,1.872
-....
-287,13.54,1.842
+data/            Competition data (train.csv, test.csv) + supplementary soil-type CSVs
+scripts/         One runnable pipeline per model version (v1–v17, model1–model6i, blends, baselines)
+src/             Shared library code: feature engineering, imputation, blend regressors, correction stages
+models/          Cached fitted models (joblib / torch checkpoints), reused across runs unless --force_retrain
+submissions/     Every submission.csv generated, one per model/ablation tried
+notebooks/       EDA and analysis notebooks (data_analysis.ipynb, eda.ipynb, starter.ipynb)
+docs/            Plan/design/analysis documents, including docs/260804.md (the full experimental log)
+logs/            Per-run text logs (OOF metrics, blend weights, Optuna trials) for every script above
+figures/         Diagnostic plots (residuals, leverage/Cook's distance, PCA, public/private comparisons)
+resources/       Reference PDFs (MICE methodology, empirical Proctor-parameter literature)
+model_description.md   Model-by-model comparison table + long-form writeups (start here)
 ```
 
-## Data Description
-The complete dataset comprises 288 observations (table rows), each characterized by 24 attributes (features – table columns). Each observation aggregates the derived parameters and test results of a specific soil sample, based on a series of geotechnical laboratory tests.
-The goal is to predict the compaction parameters from the Proctor test (target variables) based on the remaining 22 features, which originate from classification and hydraulic laboratory tests.
-The dataset was divided into two groups:
-Training dataset (train.csv): Comprises 70 % of the data.
-Test dataset (test.csv): Comprises 30 % of the data (internally split into approx. 15 % Public and 15 % Private).
-Model Development (Training data train.csv) The actual compaction parameters are provided here. Your models will use this data to learn the relationships between the target variables and the 22 laboratory parameters. Feel free to expand the dataset with physically meaningful features as part of your feature engineering.
-Model Evaluation (Test data test.csv) The target variables are intentionally hidden here – predicting them is your core task to test the generalizability of your models. The evaluation of the predicted parameters takes place in two stages via a defined Submission File using the leaderboard:
-- Public Leaderboard (15 % of the data): Provides real-time feedback on model accuracy during the ongoing competition.
-- Private Leaderboard (15 % of the data): Remains strictly secret until the end and determines the final ranking.
+---
 
+## Setup
+
+Requires **Python 3.10** (see `.python-version`).
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Key dependencies: `scikit-learn`, `xgboost`, `lightgbm`, `torch`, `optuna`, `shap`/`shapiq`, `pysindy`,
+`tabpfn`, `tabicl[finetune]`.
+
+---
+
+## Reproducing the Final Submissions
+
+Both scripts read `train.csv`/`test.csv` from `data/` by default and write predictions to `submissions/`.
+
+```bash
+# v15 — single-seed run (fast; scores ~0.2383, the lucky single-seed number, not the honest estimate)
+python scripts/v15.py
+
+# v15 — honest 100-seed-mean submission requires sweeping --seed and averaging the outputs
+# (see notebooks/analysis_paper.ipynb's "Seed sensitivity" cells for the exact procedure)
+
+# model1i — precalibration (default: id 155 excluded, 50 Optuna trials, k-fold split, no OWC calibration)
+python scripts/model1i.py
+```
+
+Every other model in `scripts/` follows the same CLI convention — run with `--help` for its full flag list,
+or see `model_description.md` for what each script's defaults represent.
+
+---
+
+## Data
+
+- **288 total observations**, split into `train.csv` (70%, targets included) and `test.csv` (30%, targets
+  hidden — the prediction target of this challenge).
+- **22 predictor features** per sample from classification and hydraulic laboratory tests: particle-size
+  distribution (PSD) percentiles, Atterberg (consistency) limits, hydraulic conductivity, loss on ignition,
+  grain density, and related derived quantities. Several columns have substantial missingness (Atterberg
+  limits, hydraulic conductivity, loss on ignition) — every model here either imputes these (MICE) or drops
+  them outright; see `model_description.md` for which choice each model makes.
+- **Submission format**:
+  ```
+  id,proctor_owc_pct,proctor_mdd_g_cm3
+  201,10.09,1.972
+  202,11.25,1.872
+  ....
+  287,13.54,1.842
+  ```
+
+---
+
+## Further Reading
+
+- **[`model_description.md`](model_description.md)** — every model tried, one-line summary + score each,
+  plus long-form writeups of the two final submissions and the general-model family.
+- **[`docs/260804.md`](docs/260804.md)** — the detailed experimental log behind the model comparisons
+  (id-155 outlier analysis, seed-sensitivity de-lucking, internal-vs-Kaggle validation reconciliation).
+- **[`docs/03-analysis/proctor-prediction.analysis.md`](docs/03-analysis/proctor-prediction.analysis.md)** —
+  exploratory data analysis backing the feature-engineering decisions.
