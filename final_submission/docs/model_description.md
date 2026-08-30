@@ -10,7 +10,7 @@
 
 - [Summary Comparison](#summary-comparison) — every model tried, one row each, newest first
 - [General-Model Family — `model1` → `model6i`](#general-model-family--model1--model6i) — individual writeups for the Ridge+GPR+XGBoost line
-- [Final Submissions — What We Actually Submitted](#final-submissions--what-we-actually-submitted)
+- [Final Submissions](#final-submissions)
   - [v15 — ARD-GP + HistGBT Blend (100-Seed Mean)](#v15--ard-gp--histgbt-blend-100-seed-mean)
   - [model1i — Ridge + GPR + XGBoost Blend on MICE-Imputed Features (Precalibration)](#model1i--ridge--gpr--xgboost-blend-on-mice-imputed-features-precalibration)
 
@@ -160,7 +160,7 @@ remains this project's single most promising untested lead for beating v15's 0.2
 
 ---
 
-## Final Submissions — What We Actually Submitted
+## Final Submissions
 
 Two very different models were chosen as this project's final Kaggle entries: **v15** (the GPR/GBT line's
 best model) and **model1i** (the general-model line's best model). Every other model documented above,
