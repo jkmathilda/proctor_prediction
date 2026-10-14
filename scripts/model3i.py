@@ -39,7 +39,7 @@ high-confidence rows lean toward beta_hi_conf.
 Motivation: model2i.py's Kaggle result (0.2667) was WORSE than plain
 model1i (0.2465) despite the correction improving its own fine-grained-
 subset OOF metric -- a real negative result, not just noise (see
-docs/260804.md Section 1/model2i writeup). One plausible failure mode: a
+`model_description.md` writeup). One plausible failure mode: a
 single global beta forces the SAME correction strength onto every
 fine-grained row, including ones the specialist genuinely can't say much
 about -- diluting the general model's already-decent prediction with a
@@ -49,7 +49,7 @@ this is a genuinely new, unvalidated mechanism (no notebook precedent, no
 prior Kaggle submission), not a known improvement. Compare its own OOF
 numbers against model2i's and model1i's before trusting it; it may not
 beat model1i either -- see this project's running heuristic
-(docs/260804.md) that small internal deltas rarely survive a real Kaggle
+(model_description.md) that small internal deltas rarely survive a real Kaggle
 submission at this dataset's size.
 
 This script scraps the earlier model3ic.py (4-soil-type proportional

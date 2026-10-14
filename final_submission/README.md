@@ -64,8 +64,6 @@ Copied from the repo root / `docs/` for context.
 - `README.md` — the main repo's README (objective, results table, repo structure, setup instructions).
 - `model_description.md` — every model tried in the project, one-line summary + score each, plus the
   long-form "Final Submissions" writeups for v15 and model1i excerpted above.
-- `260804.md` — the detailed experimental log behind the model comparisons (id-155 outlier analysis,
-  seed-sensitivity de-lucking, internal-vs-Kaggle validation reconciliation).
 
 ## Root
 - `README.md` — this file.

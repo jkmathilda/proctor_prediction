@@ -50,7 +50,7 @@ model also sees coarse rows). So the population split should sit as **late** as 
 to keep as much of the network's depth benefiting from the full pooled 201 rows for as long as possible.
 
 **Target split doesn't cost data, but needs real capacity relatively early, not late.** The cautionary
-precedent is `docs/260804.md` Section 8's shared multi-output MLP (`hidden_layer_sizes=(128,64,32)`, shared
+precedent is `model_description.md`'s shared multi-output MLP (`hidden_layer_sizes=(128,64,32)`, shared
 all the way to the output layer, diverging only at the final neuron) — R² 0.097 MDD / **-0.151** OWC, the
 worst architecture tested on this dataset. The likely failure mode: with almost the entire network shared,
 MDD's easier signal dominated the shared representation at OWC's expense. Giving each target a real encoder
@@ -66,7 +66,7 @@ unstructured (target) gets dedicated capacity early.
 
 | Prior work | Relevance |
 |---|---|
-| `docs/260804.md` Section 8 (shared multi-output MLP, chaining, separate MLPs) | The only prior test of MDD/OWC sharing on this dataset — informs why target encoders need real capacity, not a warning against sharing per se |
+| `model_description.md` (shared multi-output MLP, chaining, separate MLPs) | The only prior test of MDD/OWC sharing on this dataset — informs why target encoders need real capacity, not a warning against sharing per se |
 | `eda.ipynb`'s `SharedEncoderTwoHead` (curve-LSTM) | Same "shared encoder, target heads" shape as this plan's upper half, applied to curve-shaped PSD inputs instead of scalar `IMPUTED_FEATURES` — unvalidated, no R²/NMAE ever recorded |
 | `model_reasoning.ipynb` Sections 1-4.1 | Fine/coarse near-orthogonal standardized-Ridge-coefficient finding (justifies zero sharing at the population leaves); pooling-helps finding under XGBoost (justifies delaying the population split); the flag-conditioning-adds-nothing finding is specific to tree splits and does **not** directly transfer here — this architecture's "conditioning" is structural (separate weight branches), not a concatenated scalar feature, so it isn't invalidated by that result |
 | `coarse_specialist.py` / `fine_specialist.py` | Zero-pooling extreme; not used as a required baseline here, but their `IMPUTED_FEATURES`/imputation pipeline is reused directly (Section 5) |
@@ -79,7 +79,7 @@ unstructured (target) gets dedicated capacity early.
   from every other model in this project, which fits them as fully separate models/scripts).
 - **All four population×target leaves** — no leaf is optional or gated behind the others clearing some bar.
 - **No comparison-based go/no-go.** Results get reported (Section 8) for documentation, same as every other
-  model in this project's `docs/260804.md` — but nothing here is contingent on beating model1i, v15, or the
+  model in this project's `model_description.md` — but nothing here is contingent on beating model1i, v15, or the
   specialists.
 
 ---
@@ -140,12 +140,12 @@ underfitting, don't jump back to anything near `(128,64,32)`.
 
 ## 8. Reporting (not gating)
 
-Report, per leaf and combined, the same way `docs/260804.md` documents every other model — including if the
+Report, per leaf and combined, the same way `model_description.md` documents every other model — including if the
 result is negative:
 
 | Metric | Where |
 |---|---|
-| OOF R² / RMSE per leaf (MDD-fine, MDD-coarse, OWC-fine, OWC-coarse), mean ± std over repeated folds | `docs/260804.md` addendum |
+| OOF R² / RMSE per leaf (MDD-fine, MDD-coarse, OWC-fine, OWC-coarse), mean ± std over repeated folds | `model_description.md` addendum |
 | Combined NMAE (competition metric) | Same |
 | Comparison row against model1i/v15/specialists | For context only — informative, not a pass/fail condition |
 
@@ -177,7 +177,7 @@ this model's own OWC output.
 |---|---|
 | `src/model3.py` | `SharedEncoderTargetPopulationHead` (`nn.Module`) + train/predict helpers |
 | `scripts/model3.py` | CLI pipeline: data prep, repeated-CV training/eval, final refit, submission write |
-| `docs/260804.md` addendum | OOF results per leaf + combined NMAE + Kaggle score, reported regardless of outcome |
+| `model_description.md` addendum | OOF results per leaf + combined NMAE + Kaggle score, reported regardless of outcome |
 | `submissions/submission_model3.csv` | Written after the final refit |
 
 ---
@@ -186,7 +186,7 @@ this model's own OWC output.
 
 1. [ ] Design phase: finalize the exact `nn.Module` spec, file/CLI structure, dependencies
 2. [ ] Implement `src/model3.py` + `scripts/model3.py` per Sections 5-9
-3. [ ] Run repeated CV, log results to `docs/260804.md` regardless of how they compare to existing models
+3. [ ] Run repeated CV, log results to `model_description.md` regardless of how they compare to existing models
 4. [ ] Submit to Kaggle, record the score
 
 ---

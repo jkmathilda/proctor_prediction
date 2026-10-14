@@ -21,8 +21,7 @@
 Every model tried in this project, newest first. `v1`–`v14` were the first documented wave (SINDy/SHAP/GBM/PINN,
 scored by 5-fold CV NMAE only — no Kaggle account was being used for submission yet). Starting with `v6`/`model1`,
 every version below was scored against the real Kaggle leaderboard at least once, a directly comparable,
-apples-to-apples number across all of them (unlike the mix of CV protocols used upstream — see
-[`docs/260804.md`](../docs/260804.md) §1 for the full internal-vs-Kaggle reconciliation). Two lines of development
+apples-to-apples number across all of them (unlike the mix of CV protocols used upstream). Two lines of development
 ran in parallel: a **GPR/GBT line** (`v6`→`v17`, Gaussian Process + gradient-boosted trees) and a **general-model
 line** (`model1`→`model6i`, Ridge+GPR+XGBoost blend + correction stages), plus a handful of blends and one-off
 architecture/baseline experiments. **The two bolded rows are this project's actual final Kaggle submissions** —
@@ -165,8 +164,7 @@ remains this project's single most promising untested lead for beating v15's 0.2
 Two very different models were chosen as this project's final Kaggle entries: **v15** (the GPR/GBT line's
 best model) and **model1i** (the general-model line's best model). Every other model documented above,
 including several with *better-looking internal validation numbers*, either lost to one of these two on
-the actual leaderboard or was never trusted enough to submit as a final entry — see
-[`docs/260804.md`](../docs/260804.md) for the full experimental trail behind that filtering. Both final
+the actual leaderboard or was never trusted enough to submit as a final entry. Both final
 picks share one important property that most of the negative-result models above lack: their internal
 cross-validation estimate turned out to be an honest, close predictor of their real Kaggle score, once
 seed/split noise was accounted for.
@@ -240,8 +238,9 @@ a purely linear or purely GP fit. Predicted OWC is clipped to ≥ 0 and predicte
 Zero-Air-Voids line, the same physics guardrail v15 uses.
 
 **The single largest, most-confirmed lever in this entire project: dropping training id 155.** Row 155 is an
-extreme leverage point — the highest Cook's distance in the dataset by a wide margin (leverage 0.985, OWC
-Cook's D=12.4 vs. ~0.1 for the next-highest row; see `figures/owc_leverage_cooksd_id155.png` and
+extreme leverage point — the highest Cook's distance in the dataset by a wide margin (OLS fit of OWC on the
+28-column imputed feature set, n=201: leverage 0.998, Cook's D=30.1 vs. 0.08 for the next-highest row;
+see `figures/owc_leverage_cooksd_id155.png`, generated in `notebooks/data_analysis.ipynb` ("Outlier Diagnosis"), and
 `figures/mdd_owc_scatter_id155.png`). Excluding it from model1i's training set moved the Kaggle score from
 **0.2610 to 0.2465** — a ~5.6% relative improvement, and unlike almost every other intervention tried in
 this project (corrections, blends, calibration, alternate feature sets), it isn't a fitted parameter or a

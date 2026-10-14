@@ -32,7 +32,7 @@ This is a genuinely different bet from the correction approach, not just a
 different implementation of the same idea: a correction model only has to
 explain whatever residual signal the general model's blend weights (fit
 across BOTH soil types) left behind on fine-grained rows specifically --
-Section 7 of docs/260804.md documents that residual turning out to be thin
+model_description.md documents that residual turning out to be thin
 (nested OOF R^2 0.04-0.08) and the correction's Kaggle score coming in worse
 than the uncorrected general model. A standalone specialist instead lets
 Ridge/GPR/XGBoost's own blend-weight search run fresh on the fine-grained
@@ -52,8 +52,7 @@ project (v15/v16, model1/model1i/model2i, general_model_impute.py's own
 IMPUTED_FEATURES) drops it outright. That project-wide decision was tested
 on the GENERAL model, which is fit across both soil types at once -- v10 vs.
 v15's controlled A/B on Kaggle (0.2384 keeping it vs. 0.2383 dropping it)
-found the difference indistinguishable from noise (docs/260804.md Section
-6). But that same v10 ARD-GP run found `hyd_cond_hyd_gradient` DID survive
+found the difference indistinguishable from noise (model_description.md). But that same v10 ARD-GP run found `hyd_cond_hyd_gradient` DID survive
 OWC's feature-relevance selection specifically (length-scale 7.14, top-10
 for OWC) -- so the "doesn't matter" finding was never isolated to
 fine-grained rows or to this WeightedBlendRegressor architecture. Since this

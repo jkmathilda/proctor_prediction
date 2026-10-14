@@ -8,7 +8,7 @@ training rows (AdamW, cosine-with-warmup, gradient clipping, early stopping agai
 held-out split) before predicting -- a genuinely different bet from tabpfn_baseline.py,
 not just a different pretrained model.
 
-Same convention as every other model in this project (docs/260804.md Section 8): MDD and
+Same convention as every other model in this project (`model_description.md`): MDD and
 OWC are fit as two independent models, not jointly. Same feature set as model1i
 (IMPUTED_FEATURES, 28 MICE-imputed universal columns) and the same
 StratifiedKFold-on-MDD-quantile validation scheme (general_model_impute.

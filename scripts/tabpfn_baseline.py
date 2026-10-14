@@ -9,13 +9,12 @@ datasets. Included as a baseline specifically because it was designed for
 exactly this dataset's regime (small n, no manual tuning) -- n=201 is well
 inside TabPFN's intended operating range.
 
-Same convention as every other model in this project (docs/260804.md
-Section 8): MDD and OWC are fit as two independent models, not jointly.
+Same convention as every other model in this project (model_description.md): MDD and OWC are fit as two independent models, not jointly.
 Same feature set as model1i (IMPUTED_FEATURES, 28 MICE-imputed universal
 columns) and the same StratifiedKFold-on-MDD-quantile validation scheme
 (general_model_impute.make_stratified_kfold_splits) model1i.py uses, so this
 script's OOF NMAE is directly comparable to the model1/model1i/model2i
-family's already-logged internal numbers in docs/260804.md.
+family's already-logged internal numbers in model_description.md.
 
 Uses TabPFN-2 specifically (`ModelVersion.V2`), not the package's own default model
 version -- the pip package `tabpfn` (>=8.x) defaults to v2.5/v2.6/v3, which require a

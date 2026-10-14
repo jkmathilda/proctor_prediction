@@ -11,7 +11,7 @@ Why: a direct, equal-tuning-effort comparison (50 Optuna trials each, same
 IMPUTED_FEATURES, same StratifiedKFold-on-MDD-quantile splits) found HistGBT beats
 XGBoost on this dataset -- MDD is a near-tie (R^2 0.8522 vs 0.8533), OWC is a real win for
 HistGBT (R^2 0.7983 vs 0.7888), and combined NMAE favors HistGBT (0.2495 vs 0.2549). This
-also lines up with docs/260804.md's existing finding that v15 (HistGBT + GP blend) is the
+also lines up with model_description.md's existing finding that v15 (HistGBT + GP blend) is the
 best Kaggle submission logged so far (0.2383), beating model1i's XGBoost-based blend
 (0.2610) -- this script isolates just the boosting-library variable to test that
 connection directly, on the general-model family specifically.

@@ -46,8 +46,7 @@ Two architecturally distinct models were submitted as our final entries. Every o
 over 30 of them, spanning PINNs, Gaussian Processes, gradient-boosted trees, residual-correction stages,
 blends, and pretrained tabular foundation models — either lost to one of these two on the real leaderboard
 or was never trusted enough to submit. See **[`model_description.md`](model_description.md)** for the full
-model-by-model comparison table and long-form writeups, and **[`docs/260804.md`](docs/260804.md)** for the
-underlying experimental trail (internal-vs-Kaggle reconciliation, outlier analysis, seed-sensitivity checks).
+model-by-model comparison table, long-form writeups, outlier analysis, and seed-sensitivity checks.
 
 | Submission | Approach | Kaggle Score (NMAE) |
 |---|---|---|
@@ -70,7 +69,7 @@ src/             Shared library code: feature engineering, imputation, blend reg
 models/          Cached fitted models (joblib / torch checkpoints), reused across runs unless --force_retrain
 submissions/     Every submission.csv generated, one per model/ablation tried
 notebooks/       EDA and analysis notebooks (data_analysis.ipynb, eda.ipynb, starter.ipynb)
-docs/            Plan/design/analysis documents, including docs/260804.md (the full experimental log)
+docs/            Plan/design/analysis documents
 logs/            Per-run text logs (OOF metrics, blend weights, Optuna trials) for every script above
 figures/         Diagnostic plots (residuals, leverage/Cook's distance, PCA, public/private comparisons)
 resources/       Reference PDFs (MICE methodology, empirical Proctor-parameter literature)
@@ -138,7 +137,5 @@ or see `model_description.md` for what each script's defaults represent.
 
 - **[`model_description.md`](model_description.md)** — every model tried, one-line summary + score each,
   plus long-form writeups of the two final submissions and the general-model family.
-- **[`docs/260804.md`](docs/260804.md)** — the detailed experimental log behind the model comparisons
-  (id-155 outlier analysis, seed-sensitivity de-lucking, internal-vs-Kaggle validation reconciliation).
 - **[`docs/03-analysis/proctor-prediction.analysis.md`](docs/03-analysis/proctor-prediction.analysis.md)** —
   exploratory data analysis backing the feature-engineering decisions.

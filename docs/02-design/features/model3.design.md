@@ -147,7 +147,7 @@ owc_coarse_r2 = r2_score(y_owc[~fine_mask], oof_owc[~fine_mask])
 combined_nmae = calculate_nmae(...)   # reuse helper_functions.calculate_nmae, fixed global IQR (v14.design.md §4 precedent)
 ```
 
-Log all four leaf R²s (mean ± std over repeats) and the combined NMAE to `docs/260804.md`, plus a context-only
+Log all four leaf R²s (mean ± std over repeats) and the combined NMAE to `model_description.md`, plus a context-only
 row comparing against model1i/v15/specialists — informative, not a condition for shipping.
 
 ---
@@ -204,9 +204,9 @@ the `src/` (reusable model code) vs. `scripts/` (runnable CLI) split already use
 - [ ] Per-target loss curves logged during training (Decision 1.3) — checked for one target dominating before
       results are reported
 - [ ] Repeated CV (`RepeatedStratifiedKFold(5, 5)` on `fine-grained`), mean ± std reported for all four leaves
-      and combined NMAE — no single-split point estimates (`docs/260804.md` Section 3 precedent)
+      and combined NMAE — no single-split point estimates (`model_description.md` precedent)
 - [ ] Saturation clip applied via `helper_functions.calc_satline`, using this model's own OWC output (§6)
-- [ ] `docs/260804.md` updated with results — reported regardless of whether they beat existing models
+- [ ] `model_description.md` updated with results — reported regardless of whether they beat existing models
 - [ ] Kaggle score recorded
 
 ---
